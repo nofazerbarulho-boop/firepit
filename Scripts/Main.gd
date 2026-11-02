@@ -19,6 +19,7 @@ var ignite_button: Button
 var upgrade_button: Button
 var remove_fuel_button: Button
 var stoke_button: Button
+var rest_button: Button
 var permanent_buttons: Dictionary = {}
 var skill_tree_overlay: Control
 var skill_tree_open_button: Button
@@ -30,7 +31,7 @@ var purchase_buttons: Dictionary = {}
 var hud_layer: CanvasLayer
 var second_fire_label: Label
 var delivery_label: Label
-var delivery_time_left: float = 45.0
+var daily_save_elapsed: float = 0.0
 var biome_index: int = 0
 var biome_label: Label
 var second_upgrade_button: Button
@@ -49,6 +50,10 @@ var tier_names: Array[String] = ["Convencional", "Fatuo", "Valyrio", "Negro"]
 var gain_popups: Array[Label] = []
 var hud_refresh_pending: bool = false
 var hud_refresh_elapsed: float = 0.0
+var facility_buttons: Dictionary = {}
+var wagon_button: Button
+var truck_button: Button
+var experimental_buttons: Dictionary = {}
 
 func _ready() -> void:
 	second_fire.has_private_inventory = true
@@ -64,13 +69,10 @@ func _ready() -> void:
 	GameManager.inventory_changed.connect(_request_hud_refresh)
 	fire.fire_changed.connect(_request_hud_refresh)
 	fire.gain_batch.connect(_show_gain_popup)
+	fire.critical_explosion.connect(_on_critical_explosion)
 	second_fire.fire_changed.connect(_request_hud_refresh)
 	second_fire.gain_batch.connect(_show_gain_popup)
 	get_tree().root.close_requested.connect(_save_offline_progress)
-	var offline_result := GameManager.claim_offline_progress()
-	var offline_soot := float(offline_result.get("soot", 0.0))
-	if offline_soot > 0.0:
-		feedback_label.text = "Progreso automático: %.0f s y +%.1f de hollín." % [int(offline_result.get("seconds", 0)), offline_soot]
 	_refresh_hud()
 
 func _process(delta: float) -> void:
@@ -80,12 +82,19 @@ func _process(delta: float) -> void:
 			hud_refresh_pending = false
 			hud_refresh_elapsed = 0.0
 			_refresh_hud()
-	delivery_time_left -= delta
-	if delivery_time_left <= 0.0:
-		for fuel_data in FuelCatalog.get_all():
-			GameManager.add_fuel_stock(fuel_data.fuel_id, 1)
-			second_fire.add_delivery(fuel_data.fuel_id, 1)
-		delivery_time_left = 45.0
+	if GameManager.advance_workday(delta):
+		var sold_ash := GameManager.close_workday()
+		feedback_label.text = "Jornada cerrada: ceniza vendida por %.1f de hollín. Día %d." % [sold_ash, GameManager.get_day_number()]
+		daily_save_elapsed = 0.0
+		_refresh_hud()
+	GameManager.advance_logistics(delta)
+	daily_save_elapsed += delta
+	if daily_save_elapsed >= 10.0:
+		daily_save_elapsed = 0.0
+		GameManager.save_daily_state()
+	var milestone_reward := GameManager.claim_temperature_milestones(fire.current_heat)
+	if milestone_reward > 0:
+		feedback_label.text = "¡Hito de temperatura! +%d brasa(s) permanente(s)." % milestone_reward
 
 func _build_world() -> void:
 	var camera := get_node_or_null("Camera3D") as Camera3D
@@ -97,6 +106,22 @@ func _build_world() -> void:
 	fire_light.light_energy = 0.0
 	fire_light.omni_range = 6.0
 	fire.add_child(fire_light)
+	_create_facility_visual("warehouse", Vector3(-2.0, 0.45, -1.2), Vector3(1.2, 0.9, 1.0), Color(0.38, 0.29, 0.2))
+	_create_facility_visual("silo", Vector3(2.0, 0.7, -1.2), Vector3(0.8, 1.4, 0.8), Color(0.52, 0.55, 0.53), true)
+	_create_facility_visual("workshop", Vector3(-2.0, 0.35, 1.2), Vector3(0.9, 0.7, 0.9), Color(0.32, 0.39, 0.35))
+	_create_facility_visual("garage", Vector3(2.0, 0.35, 1.2), Vector3(1.0, 0.7, 0.9), Color(0.35, 0.36, 0.42))
+
+func _create_facility_visual(kind: String, at: Vector3, base_scale: Vector3, tint: Color, cylinder: bool = false) -> void:
+	var mesh_node := MeshInstance3D.new()
+	mesh_node.name = "Facility_" + kind
+	var shape: PrimitiveMesh = CylinderMesh.new() if cylinder else BoxMesh.new()
+	var material := StandardMaterial3D.new()
+	material.albedo_color = tint
+	shape.material = material
+	mesh_node.mesh = shape
+	mesh_node.position = at
+	mesh_node.scale = base_scale
+	add_child(mesh_node)
 
 func _build_hud() -> void:
 	hud_layer = CanvasLayer.new()
@@ -167,6 +192,10 @@ func _build_hud() -> void:
 	stoke_button = Button.new()
 	stoke_button.pressed.connect(_on_stoke)
 	layout.add_child(stoke_button)
+	rest_button = Button.new()
+	rest_button.text = "Descansar y cerrar la jornada"
+	rest_button.pressed.connect(_on_rest)
+	layout.add_child(rest_button)
 	upgrade_button = Button.new()
 	upgrade_button.text = "Mejorar producción (25 de hollín, +0,25x)"
 	upgrade_button.pressed.connect(_on_upgrade)
@@ -178,8 +207,29 @@ func _build_hud() -> void:
 	prestige_button = Button.new()
 	prestige_button.pressed.connect(_on_prestige)
 	layout.add_child(prestige_button)
+	prestige_button.visible = false
+	var facilities_title := Label.new()
+	facilities_title.text = "Instalaciones y logística"
+	layout.add_child(facilities_title)
+	for facility in ["warehouse", "silo", "workshop", "garage"]:
+		var facility_button := Button.new()
+		facility_button.pressed.connect(_on_upgrade_facility.bind(facility))
+		layout.add_child(facility_button)
+		facility_buttons[facility] = facility_button
+	wagon_button = Button.new()
+	wagon_button.text = "Enviar vagoneta (10 s, hasta 50 cenizas)"
+	wagon_button.pressed.connect(_on_dispatch_wagon)
+	layout.add_child(wagon_button)
+	truck_button = Button.new()
+	truck_button.pressed.connect(_on_request_truck)
+	layout.add_child(truck_button)
+	for tech in ["gas", "tritium", "laser"]:
+		var tech_button := Button.new()
+		tech_button.pressed.connect(_on_experimental.bind(tech))
+		layout.add_child(tech_button)
+		experimental_buttons[tech] = tech_button
 	var world_title := Label.new()
-	world_title.text = "Mundo y entregas"
+	world_title.text = "Combustibles y suministro diario"
 	layout.add_child(world_title)
 	presentation_label = Label.new()
 	presentation_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -269,17 +319,7 @@ func _on_cycle_fuel_priority(target_fire: FireManager) -> void:
 	_refresh_hud()
 
 func _save_offline_progress() -> void:
-	var first_seconds := fire.get_automation_fuel_seconds()
-	var second_seconds := second_fire.get_automation_fuel_seconds()
-	var total_seconds := first_seconds + second_seconds
-	var weighted_rate := 0.0
-	if total_seconds > 0.0:
-		weighted_rate = (fire.get_automation_average_rate() * first_seconds + second_fire.get_automation_average_rate() * second_seconds) / total_seconds
-	var settings := {
-		"fire1": _get_fire_automation_settings(fire),
-		"fire2": _get_fire_automation_settings(second_fire)
-	}
-	GameManager.record_session_exit(total_seconds, weighted_rate, GameManager.get_soot(), settings)
+	GameManager.save_daily_state()
 
 func _get_fire_automation_settings(target_fire: FireManager) -> Dictionary:
 	return {
@@ -480,6 +520,44 @@ func _on_stoke() -> void:
 		feedback_label.text = "No se pudo avivar la hoguera."
 	_refresh_hud()
 
+func _on_rest() -> void:
+	if GameManager.get_day_elapsed() < 120.0:
+		feedback_label.text = "Podrás descansar después de 2 minutos de jornada."
+		return
+	var sold_ash := GameManager.close_workday()
+	feedback_label.text = "Jornada cerrada: ceniza vendida por %.1f de hollín. Día %d." % [sold_ash, GameManager.get_day_number()]
+	daily_save_elapsed = 0.0
+	_refresh_hud()
+
+func _on_upgrade_facility(kind: String) -> void:
+	if GameManager.purchase_facility(kind): feedback_label.text = "Instalación mejorada: %s." % kind
+	else: feedback_label.text = "Mejora no disponible: revisa hollín o nivel máximo."
+	_refresh_hud()
+
+func _on_dispatch_wagon() -> void:
+	feedback_label.text = "Vagoneta despachada." if GameManager.dispatch_wagon() else "No hay ceniza disponible o la ruta está ocupada."
+	_refresh_hud()
+
+func _on_request_truck() -> void:
+	if GameManager.request_fuel_truck():
+		feedback_label.text = "Camión pedido; entrega en %.0f s." % GameManager.get_truck_seconds_left()
+	else:
+		feedback_label.text = "No se pudo pedir el camión (25 hollines y una ruta libre)."
+	_refresh_hud()
+
+func _on_experimental(id: String) -> void:
+	if GameManager.get_tech_unlocked(id):
+		feedback_label.text = "Tecnología activada: %s." % id if fire.activate_experimental(id) else "La tecnología requiere una combustión activa y hollín suficiente."
+	elif GameManager.unlock_experimental(id):
+		feedback_label.text = "Tecnología experimental desbloqueada: %s." % id
+	else:
+		feedback_label.text = "Requiere alcanzar el hito correspondiente y gastar una brasa."
+	_refresh_hud()
+
+func _on_critical_explosion() -> void:
+	feedback_label.text = "¡Combustión crítica! +100 °C. La jornada termina; la ceniza no recogida se pierde."
+	_refresh_hud()
+
 func _on_remove_fuel() -> void:
 	if fire.remove_last_fuel():
 		feedback_label.text = "Último combustible devuelto al inventario."
@@ -500,7 +578,6 @@ func _on_prestige() -> void:
 		return
 	fire.clear_for_new_run()
 	second_fire.clear_for_new_run()
-	delivery_time_left = 45.0
 	feedback_label.text = "Run reiniciada: +%d brasas permanentes." % awarded
 	_refresh_hud()
 
@@ -712,8 +789,8 @@ func _refresh_hud() -> void:
 	skin_button.text = "Cambiar skin (%s)" % ["Natural", "Ambar", "Azul palido"][selected_skin]
 	accessibility_button.text = "Accesibilidad: %s%s" % ["texto grande" if large_text else "texto normal", " | alto contraste" if high_contrast else ""]
 	volume_button.text = "Volumen del fuego: %d%%" % int(fire_volume * 100.0)
-	soot_label.text = "Hollin: %.1f | Generado en esta run: %.1f" % [GameManager.get_soot(), GameManager.get_run_soot_earned()]
-	stats_label.text = "Calor: %.1f (x%.2f) | Multiplicador: %.2fx\nBrasas ganadas: %d | Disponibles: %d" % [fire.current_heat, GameManager.get_thermal_multiplier(), GameManager.get_global_multiplier(), GameManager.get_permanent_points(), GameManager.get_available_embers()]
+	soot_label.text = "Hollín disponible: %.1f | Ceniza de la jornada: %.1f" % [GameManager.get_soot(), GameManager.get_daily_ash()]
+	stats_label.text = "Temperatura: %.1f °C (x%.2f) | Multiplicador: %.2fx\nBrasas ganadas: %d | Disponibles: %d" % [fire.current_heat, GameManager.get_thermal_multiplier(), GameManager.get_global_multiplier(), GameManager.get_permanent_points(), GameManager.get_available_embers()]
 	var second_stock_parts := PackedStringArray()
 	for fuel_data in FuelCatalog.get_all():
 		second_stock_parts.append("%s %d" % [fuel_data.display_name, second_fire.private_stock.get(fuel_data.fuel_id, 0)])
@@ -733,15 +810,45 @@ func _refresh_hud() -> void:
 		toggle.disabled = not target_fire.automation_unlocked and GameManager.get_soot() < unlock_cost
 		priority.text = "Prioridad: " + target_fire.get_fuel_priority_text()
 		priority.disabled = not target_fire.automation_unlocked
-	delivery_label.text = "Siguiente entrega en %.0f s | +1 de cada combustible por hoguera" % delivery_time_left
+	var remaining_day := maxf(0.0, 720.0 - GameManager.get_day_elapsed())
+	delivery_label.text = "Día %d · %02d:%02d · ceniza suelta %.1f / silo %.1f/%d · próxima entrega al comenzar el día" % [GameManager.get_day_number(), int(remaining_day / 60.0), int(remaining_day) % 60, GameManager.get_uncollected_ash(), GameManager.get_silo_ash(), GameManager.get_silo_capacity()]
+	for kind in facility_buttons:
+		var level := GameManager.get_facility_level(str(kind))
+		var capacity := "20→%d unidades" % GameManager.get_warehouse_capacity() if kind == "warehouse" else ("300→%d cenizas" % GameManager.get_silo_capacity() if kind == "silo" else ("vagoneta automática" if kind == "workshop" else "cargas %d | espera %.0f s" % [level + 1, maxf(30.0, 60.0 - 15.0 * level)]))
+		var cost := 50.0 * pow(1.5, level)
+		var button: Button = facility_buttons[kind]
+		button.text = "%s nivel %d/3 · %s · mejorar (%.0f hollín)" % [str(kind).capitalize(), level, capacity, cost]
+		button.disabled = level >= 3 or GameManager.get_soot() < cost
+		var visual := get_node_or_null("Facility_" + str(kind)) as MeshInstance3D
+		if visual != null:
+			visual.scale.y = (1.0 + 0.2 * float(level)) * (1.4 if kind == "silo" else 0.9 if kind == "warehouse" else 0.7)
+	wagon_button.text = "Vagoneta en ruta: %.1f s" % GameManager.get_truck_seconds_left() if GameManager.is_truck_pending() else "Enviar vagoneta (10 s, hasta 50 cenizas)"
+	wagon_button.disabled = GameManager.is_truck_pending() or GameManager.get_uncollected_ash() <= 0.0 or GameManager.get_silo_ash() >= GameManager.get_silo_capacity()
+	truck_button.text = "Camión en ruta: %.1f s" % GameManager.get_truck_seconds_left() if GameManager.is_truck_pending() else "Pedir camión (25 hollín)"
+	truck_button.disabled = GameManager.is_truck_pending() or GameManager.get_soot() < 25.0
+	for id in experimental_buttons:
+		var threshold: int = int({"gas": 100, "tritium": 500, "laser": 1000}[str(id)])
+		var button: Button = experimental_buttons[id]
+		var effect_text := "activo x%.1f · %.1f s" % [fire.experimental_heat_multiplier, fire.experimental_time_left] if fire.experimental_time_left > 0.0 else ("activar (25 hollín)" if id in ["gas", "tritium"] else "activar (50 hollín)")
+		button.text = "%s · %s" % [str(id).capitalize(), effect_text] if GameManager.get_tech_unlocked(id) else "%s · desbloquear (hito %d °C, 1 brasa)" % [str(id).capitalize(), threshold]
+		var previous_tech := "gas" if id == "tritium" else "tritium" if id == "laser" else ""
+		button.disabled = (not GameManager.get_tech_unlocked(id) and (not bool(GameManager.run_progress.claimed_temperature_milestones.get(str(threshold), false)) or GameManager.get_available_embers() < 1 or (not previous_tech.is_empty() and not GameManager.get_tech_unlocked(previous_tech)))) or (GameManager.get_tech_unlocked(id) and (not fire.burning or GameManager.get_soot() < (50.0 if id == "laser" else 25.0)))
+	rest_button.disabled = GameManager.get_day_elapsed() < 120.0
 	biome_label.text = "Bioma: Bosque | calor normal" if biome_index == 0 else "Bioma: Turbera | +25% calor"
-	var live_rate := GameManager.get_soot_rate(fire.current_heat)
-	if fire.stoke_time_left > 0.0:
-		live_rate *= FireManager.STOKE_MULTIPLIER
+	var live_rate := 0.0
+	var stations: Array[FireManager] = [fire, second_fire]
+	for station in stations:
+		if not station.burning:
+			continue
+		var station_rate: float = GameManager.get_soot_rate(station.current_heat) * station.local_production_multiplier
+		if station.stoke_time_left > 0.0:
+			station_rate *= FireManager.STOKE_MULTIPLIER
+		live_rate += station_rate
 	rate_label.text = "Produccion actual: %.1f hollin/s" % live_rate
-	var progress := GameManager.get_prestige_progress()
-	progress_label.text = "Proxima brasa: %.0f / %.0f de hollin" % [progress, GameManager.PRESTIGE_THRESHOLD]
-	progress_bar.value = progress
+	var next_milestone := GameManager.get_next_temperature_milestone()
+	progress_label.text = "Siguiente hito: %.0f °C" % next_milestone if next_milestone > 0 else "Todos los hitos de temperatura alcanzados"
+	progress_bar.max_value = float(next_milestone) if next_milestone > 0 else 1.0
+	progress_bar.value = minf(fire.current_heat, float(next_milestone)) if next_milestone > 0 else 1.0
 	var stock := GameManager.get_fuel_stock()
 	var stock_parts := PackedStringArray()
 	for fuel_data in FuelCatalog.get_all():
@@ -757,13 +864,15 @@ func _refresh_hud() -> void:
 	for fuel_id in fuel_buttons:
 		var fuel_button: Button = fuel_buttons[fuel_id]
 		var available := GameManager.get_fuel_count(fuel_id)
-		fuel_button.disabled = available <= 0
-		fuel_button.text = "Anadir %s (%d)" % [fuel_id, available]
+		var unlocked := GameManager.is_fuel_unlocked(fuel_id)
+		fuel_button.disabled = available <= 0 or not unlocked
+		fuel_button.text = "Anadir %s (%d)" % [fuel_id, available] if unlocked else "%s · disponible el día %d" % [fuel_id, FuelCatalog.get_by_id(fuel_id).unlock_day]
 	for fuel_id in purchase_buttons:
 		var purchase_button: Button = purchase_buttons[fuel_id]
 		var price := fuel_shop.get_price(fuel_id)
-		purchase_button.text = "Comprar %s (%.0f hollin)" % [fuel_shop.get_display_name(fuel_id), price]
-		purchase_button.disabled = GameManager.get_soot() < price
+		var unlocked := GameManager.is_fuel_unlocked(fuel_id)
+		purchase_button.disabled = not unlocked or GameManager.get_soot() < price
+		purchase_button.text = "Comprar %s (%.0f hollin)" % [fuel_shop.get_display_name(fuel_id), price] if unlocked else "%s · se desbloquea el día %d" % [fuel_shop.get_display_name(fuel_id), FuelCatalog.get_by_id(fuel_id).unlock_day]
 	ignite_button.disabled = fire.burning or fire.fuel_queue.is_empty()
 	stoke_button.text = "Avivar (+50% durante 12 s | 15 hollin)" if fire.stoke_time_left <= 0.0 else "Avivando (%.1f s)" % fire.stoke_time_left
 	stoke_button.disabled = not fire.burning or fire.stoke_time_left > 0.0 or GameManager.get_soot() < FireManager.STOKE_COST
@@ -794,6 +903,11 @@ func _update_guidance_and_tooltips(stock: Dictionary) -> void:
 		guidance_label.text = "Sin existencias: compra combustible en la tienda para continuar."
 	else:
 		guidance_label.text = "Sin combustible ni hollín para comprarlo. Espera a una brasa recuperable o reinicia cuando puedas."
+	if fire.burning and fire.current_heat >= 100.0 and GameManager.is_fuel_unlocked("combustible_liquido"):
+		for queued_fuel in fire.fuel_queue:
+			if queued_fuel.fuel_id == "carbon":
+				guidance_label.text += " Señales de inestabilidad: mezcla crítica posible."
+				break
 
 	for fuel_id in fuel_buttons:
 		var fuel_button: Button = fuel_buttons[fuel_id]

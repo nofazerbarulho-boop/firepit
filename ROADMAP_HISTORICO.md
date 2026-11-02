@@ -1,4 +1,4 @@
-﻿# HOGUERAS — Sprints y tickets
+# HOGUERAS — Sprints y tickets
 
 Backlog vivo del proyecto. Cada sprint es una unidad de entrega; no se fijan fechas hasta acordar duración y disponibilidad del equipo.
 
@@ -124,6 +124,8 @@ Sprint 6 implementa tiers visuales (0/5/10/20 brasas), skins estéticas independ
 ## Registro de validación
 
 - La regresión automatizada `Tests/sprint0_smoke.tscn` escribe un archivo por ejecución con el resultado de cada comprobación en `Tests/Logs/`; imprime la ruta completa en la consola. Las demás validaciones manuales se anotan aquí con fecha, pasos y resultado al ejecutarlas.
+- **2026-11-02** — Ampliada la regresión para cubrir calidad de mezcla, fases/calor, reserva recuperable y acción Avivar (HOG-010–013), además de los checks previos de Sprints 0 y 1. No ejecutada: no se encontró Godot en `PATH` ni en las ubicaciones locales inspeccionadas. Sprint 2 permanece **Implementado · validar** hasta poder correr la escena y revisar el HUD en Godot.
+- **2026-11-02** — Ampliada la regresión para HOG-014–024: ramas permanentes y migración de guardado, hogueras e inventarios independientes, biomas, combustible por datos, entregas, automatización por estación, prioridades y premios offline. Revisión de ejecutable sin resultado: Godot no está en `PATH` ni en las ubicaciones comunes inspeccionadas. No se generó log ni se pudo revisar la escena/HUD en el editor; Sprint 3, 4 y 5 siguen **Implementado · validar** y sus criterios no se consideran verificados.
 - No se marcan pruebas como ejecutadas por el mero hecho de añadir instrumentación; el primer log se generará al correr la escena de regresión en Godot.
 
 ## Sprint 8 — Metaprogresion
@@ -133,3 +135,68 @@ Sprint 6 implementa tiers visuales (0/5/10/20 brasas), skins estéticas independ
 | HOG-032 | Separar el arbol permanente en una pantalla de mejoras | P1 | Implementado · validar | HOG-014–017 | El juego ofrece un menu propio con dos ramas visuales, nodos conectados, costes, prerequisitos, bloqueos y compra persistente; se puede volver al juego sin perder estado. |
 
 - 2026-11-02 — HOG-032 implementado: menu de mejoras permanente separado del HUD, dos ramas de nodos con conectores y estado de compra, tema visual de carbon y brasa.
+
+## Sprint 9 — Definición del bucle y alcance inicial
+
+Estado: **Cerrado**. Decisiones seleccionadas y alcance inicial documentados en `ROADMAP.md`. Esto define la dirección futura y no reemplaza de inmediato los sistemas del prototipo actual. Los Sprints 10 y 11 preparan la primera entrega alineada; las reglas de los Sprints 12 y 13 están seleccionadas, pero su implementación espera al cierre y validación de los prerequisitos.
+
+| ID | Ticket | Prioridad | Estado | Dependencias | Criterio de aceptación |
+|---|---|---:|---|---|---|
+| HOG-033 | Definir la jornada, el descanso y los hitos de temperatura | P0 | Hecho | — | IDEA-001/002/008 seleccionadas: jornada de 12 minutos reales; acciones de compra, carga y avivado no adelantan el reloj; descanso permitido desde el minuto 2; al minuto 12 el día se cierra automáticamente sin bonificación. Hitos de 100/500/1.000 °C conceden una brasa cada uno, una sola vez y se conservan entre jornadas. |
+| HOG-034 | Definir reinicios y progresión entre jornadas y runs | P0 | Hecho | HOG-033 | En el bucle alineado no hay reinicio de campaña ni prestigio. Hollín financia compras; dinero, mejoras y excedente de combustible persisten entre jornadas. Las brasas se ganan por hitos y se gastan en mejoras permanentes, que persisten. Prestigio pagado y reinicio por saturación quedan aplazados. El prototipo conserva sus reglas actuales durante la validación. |
+| HOG-035 | Definir economía diaria, combustible y gestión de ceniza | P0 | Hecho | HOG-033 | La ceniza se vende automáticamente al cierre de jornada por hollín; se recibe combustible al inicio del día, se puede comprar más durante la jornada con hollín y el excedente se conserva. Se seleccionan combustibles básicos. No hay puntos de llama, límite de ceniza ni coste de recogida en el alcance inicial. Cantidades y precios quedan para balance de implementación. |
+| HOG-036 | Seleccionar el alcance de la primera entrega alineada | P1 | Hecho | HOG-033–035 | `ROADMAP.md` delimita una hoguera y una nave con jornada/descanso, hitos, combustibles básicos, ceniza por hollín y suministro diario. IDEA-001/002/004/005/006/008 quedan seleccionadas para la primera entrega. Las ideas 003/007/009/010/011/012 se seleccionan para etapas posteriores en Sprints 12–13, con implementación condicionada al cierre de Sprints 10–11. |
+
+Sprints 10 y 11 se seleccionan para implementar la primera entrega alineada. Las reglas de IDEA-003/007/009/010/011/012 y la progresión tardía de carbón y combustible líquido quedan seleccionadas para Sprints 12 y 13; su implementación no empieza hasta cerrar y validar los Sprints 10 y 11. Las demás ideas no seleccionadas siguen como candidatas y requieren una decisión posterior.
+
+- **2026-11-02** — Sprint 9 cerrado tras aceptar el paquete de diseño: jornada de 12 minutos, descanso desde el minuto 2, cierre automático al minuto 12, hitos permanentes de temperatura con brasas, hollín como dinero, suministro diario acumulable y primera entrega de una sola hoguera sin prestigio, daño por calor ni límite de ceniza.
+
+## Sprint 10 — Jornada, descanso y progresión
+
+Estado: **Implementado · validar**. HOG-039 se mantiene sin peligro ni penalización, según el alcance seleccionado.
+
+| ID | Ticket | Prioridad | Estado | Dependencias | Criterio de aceptación |
+|---|---|---:|---|---|---|
+| HOG-037 | Implementar el ciclo de jornada y descanso | P0 | Implementado · validar | HOG-036 | Jornada de 12 minutos reales, descanso desde el minuto 2, cierre automático al minuto 12 sin penalización, persistencia del día y reloj visible en HUD. (IDEA-001) |
+| HOG-038 | Añadir hitos de temperatura | P1 | Implementado · validar | HOG-036–037 | Los umbrales de 100/500/1.000 °C conceden una brasa única y persistente; el HUD muestra el siguiente hito. (IDEA-002) |
+| HOG-039 | Confirmar que no hay daño ni penalización | P1 | Hecho | HOG-036–037 | En el alcance inicial, el calor no daña y el cierre automático no penaliza. (IDEA-008) |
+
+## Sprint 11 — Economía diaria y combustibles
+
+Estado: **Implementado · validar**. HOG-042 se reserva para Sprint 12; los tickets de este sprint cubren ceniza diaria, suministro y progresión de combustibles básicos.
+
+| ID | Ticket | Prioridad | Estado | Dependencias | Criterio de aceptación |
+|---|---|---:|---|---|---|
+| HOG-040 | Cerrar la jornada y liquidar ceniza | P0 | Implementado · validar | HOG-036–037 | La ceniza acumulada se vende por hollín al descansar o al cerrar el día; no se generan puntos de llama. (IDEA-005) |
+| HOG-041 | Gestionar suministro y presupuesto diario de combustible | P0 | Implementado · validar | HOG-036–037 | Cada día entrega las cantidades base de combustibles ya desbloqueados; el excedente se conserva, la compra usa hollín y el HUD muestra existencias y tiempo restante. (IDEA-006) |
+| HOG-043 | Incorporar la progresión de combustibles | P1 | Implementado · validar | HOG-036, HOG-041 | Combustibles básicos desbloqueados en secuencia: hojarasca y leña desde el día 1, tronco desde el día 2 y turba desde el día 3; la tienda, carga y automatización respetan los desbloqueos. (IDEA-004) |
+
+## Sprint 12 — Crecimiento de la nave y automatización
+
+Estado: **Implementado · validar**. Instalaciones, silo, recogida de ceniza y logística integradas; pendiente ejecutar el proyecto y validar regresión.
+
+| ID | Ticket | Prioridad | Estado | Dependencias | Criterio de aceptación |
+|---|---|---:|---|---|---|
+| HOG-042 | Ampliar capacidad y recoger ceniza | P1 | Implementado · validar | HOG-036, HOG-040 | El silo inicial admite 300 unidades; cada mejora añade 150, hasta tres mejoras. La ceniza que no cabe o no llega al silo pierde su valor; llenar el silo no detiene la hoguera ni reinicia la campaña. No se cobra por recogerla. (IDEA-007) |
+| HOG-044 | Ampliar la nave mediante mejoras | P1 | Implementado · validar | HOG-036, HOG-037, HOG-041, HOG-042 | La jornada sigue en 12 minutos. El almacén admite 20 unidades y cada mejora añade 5, hasta tres; el silo sigue las reglas de HOG-042. Las mejoras de almacén, silo, taller y garaje cuestan 50 de hollín iniciales, con coste ×1,5 por nivel de cada mejora. Los cambios estructurales se reflejan visualmente y en la capacidad visible. La mejora del taller habilita viajes automáticos de vagoneta. (IDEA-003) |
+| HOG-045 | Transportar ceniza con vagonetas | P2 | Implementado · validar | HOG-036, HOG-042, HOG-044 | Un botón despacha un viaje por una ruta fija entre la hoguera y el silo, con capacidad de hasta 50 unidades y 10 segundos de recorrido. La mejora del taller habilita viajes automáticos cuando hay ceniza y espacio libre. Al cerrar la jornada, la ceniza del silo se vende a 1 hollín por unidad y la no recogida se pierde. (IDEA-009) |
+| HOG-046 | Añadir garaje y llamadas de camiones | P2 | Implementado · validar | HOG-036, HOG-041, HOG-044 | Un pedido cuesta 25 de hollín, tarda 60 segundos y entrega una unidad de cada combustible desbloqueado; solo puede haber uno pendiente. Cada mejora añade una unidad por combustible y reduce la espera 15 segundos, hasta un mínimo de 30. La espera no baja de ese mínimo; pedido y temporizador son visibles. (IDEA-010) |
+
+## Sprint 13 — Combustión crítica y tecnología experimental
+
+Estado: **Implementado · validar**. Combustibles tardíos, evento crítico y tecnologías integrados; pendiente ejecutar el proyecto y validar regresión.
+
+| ID | Ticket | Prioridad | Estado | Dependencias | Criterio de aceptación |
+|---|---|---:|---|---|---|
+| HOG-047 | Añadir combustiones críticas y explosiones | P2 | Implementado · validar | HOG-037, HOG-038, HOG-043, HOG-049 | Al añadir combustible líquido a una combustión que contiene carbón, con temperatura de al menos 100 °C, se hace una tirada oculta del 5%. La interfaz indica inestabilidad sin revelar el porcentaje. Si ocurre, suma 100 °C y cierra el día; se pierde la ceniza no depositada, pero se conservan hollín, combustible, mejoras, brasas e hitos. No hay daño físico ni reinicio de campaña. (IDEA-011) |
+| HOG-048 | Desbloquear tecnología experimental avanzada | P2 | Implementado · validar | HOG-038, HOG-047 | En orden, 100/500/1.000 °C desbloquean inyección de gas, tritio y asistencia láser, pagando una brasa por etapa. Gas: 25 hollín por uso, +50% calor durante 10 s. Tritio: 25 hollín por unidad, 12 s al doble de calor base. Láser: 50 hollín por uso, +50% calor durante 10 s. Los estados y efectos se explican en el juego. (IDEA-012) |
+| HOG-049 | Añadir carbón y combustible líquido | P1 | Implementado · validar | HOG-043 | Tras los combustibles básicos, carbón se desbloquea el día 4 y combustible líquido el día 5; cada uno usa sus datos de precio, calor, duración y suministro diario. Tienda, inventario, entregas y HUD respetan el desbloqueo. La mezcla carbón→combustible líquido puede satisfacer el requisito de HOG-047. (IDEA-004/011) |
+| HOG-050 | Persistir instalaciones, logística y tecnología | P1 | Implementado · validar | HOG-042, HOG-044–049 | Una migración versionada conserva hollín, combustible, brasas, hitos y mejoras existentes, y guarda niveles de almacén/silo/taller, automatización, pedido de camión pendiente, estado de vagoneta y tecnologías desbloqueadas. Un guardado ausente o ilegible inicia una partida limpia sin estado parcial. |
+
+- **2026-11-02** — Sprints 10 y 11 implementados para validación: jornadas y descanso, hitos persistentes, liquidación de ceniza, suministro diario acumulable y desbloqueos básicos por día. Sin ejecución de Godot; no marcar como Hecho hasta validar el proyecto y la regresión.
+
+- **2026-11-02** — Sprints 12 y 13 implementados para validación: mejoras y capacidades de instalaciones, recogida y venta de ceniza por vagoneta, pedidos de camión, combustibles de días 4/5, combustión crítica, tecnologías experimentales y migración versionada del guardado. Godot no está disponible en el entorno; no marcar como Hecho hasta validar proyecto y regresión.
+
+- **2026-11-02** — Tras Sprint 9 se seleccionan Sprints 10 y 11 en serie para implementar el bucle diario, los hitos, la venta de ceniza y los combustibles básicos. Los desbloqueos diarios siguen el orden hojarasca/leña, tronco y turba; Sprint 12 y 13 quedan como trabajo futuro sujeto al cierre y validación de sus prerequisitos.
+
+- **2026-11-02** — Se seleccionan para contenido posterior las reglas de IDEA-003/007/009/010/011/012: mejoras de almacén y silo con hollín, transporte de ceniza, camiones de carga mixta, combustión crítica con pérdida limitada al día y tecnología experimental por hitos/brasas. HOG-049 añade carbón (día 4) y combustible líquido (día 5) como prerequisito de la mezcla crítica. Sprints 12–13 no se implementan hasta cerrar y validar 10–11.

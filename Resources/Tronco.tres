@@ -10,3 +10,4 @@ heat_value = 6.0
 burn_duration = 8.0
 soot_price = 14.0
 starting_stock = 3
+unlock_day = 2

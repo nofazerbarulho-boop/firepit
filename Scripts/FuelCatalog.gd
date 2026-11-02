@@ -6,6 +6,8 @@ const FUELS: Array[FuelData] = [
 	preload("res://Resources/Leña.tres"),
 	preload("res://Resources/Tronco.tres"),
 	preload("res://Resources/Turba.tres"),
+	preload("res://Resources/Carbon.tres"),
+	preload("res://Resources/CombustibleLiquido.tres"),
 ]
 
 static func get_all() -> Array[FuelData]:

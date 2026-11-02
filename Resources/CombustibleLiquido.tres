@@ -1,0 +1,13 @@
+[gd_resource type="Resource" script_class="FuelData" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://Scripts/FuelData.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+fuel_id = "combustible_liquido"
+display_name = "Combustible líquido"
+heat_value = 12.0
+burn_duration = 8.0
+soot_price = 40.0
+starting_stock = 1
+unlock_day = 5

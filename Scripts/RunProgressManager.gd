@@ -6,7 +6,7 @@ signal changed
 const PRESTIGE_THRESHOLD := 100.0
 const EMBER_RESERVE_CAP := 12.0
 const SAVE_PATH := "user://hogueras_save.cfg"
-const SAVE_VERSION := 3
+const SAVE_VERSION := 5
 const ADVANCED_TREE_THRESHOLD := 5
 const OFFLINE_CAP_SECONDS := 8.0 * 60.0 * 60.0
 
@@ -21,8 +21,34 @@ var offline_saved_at: int = 0
 var offline_fuel_seconds: float = 0.0
 var offline_soot_per_second: float = 0.0
 var automation_settings: Dictionary = {}
+var day_number: int = 1
+var day_elapsed: float = 0.0
+var daily_ash: float = 0.0
+var claimed_temperature_milestones: Dictionary = {}
+var saved_fuel_stock: Dictionary = {}
+var saved_temporary_upgrades: int = 0
+var silo_ash: float = 0.0
+var uncollected_ash: float = 0.0
+var facility_levels: Dictionary = {"warehouse": 0, "silo": 0, "workshop": 0, "garage": 0}
+var truck_seconds_left: float = 0.0
+var truck_pending: bool = false
+var truck_cargo: Dictionary = {}
+var experimental_unlocked: Dictionary = {}
 
 func load_progress() -> void:
+	day_number = 1
+	day_elapsed = 0.0
+	daily_ash = 0.0
+	claimed_temperature_milestones.clear()
+	saved_fuel_stock.clear()
+	saved_temporary_upgrades = 0
+	silo_ash = 0.0
+	uncollected_ash = 0.0
+	facility_levels = {"warehouse": 0, "silo": 0, "workshop": 0, "garage": 0}
+	truck_seconds_left = 0.0
+	truck_pending = false
+	truck_cargo.clear()
+	experimental_unlocked.clear()
 	var save_file := ConfigFile.new()
 	var load_error := save_file.load(SAVE_PATH)
 	if load_error != OK:
@@ -37,11 +63,36 @@ func load_progress() -> void:
 		offline_fuel_seconds = 0.0
 		offline_soot_per_second = 0.0
 		automation_settings.clear()
+		day_number = 1
+		day_elapsed = 0.0
+		daily_ash = 0.0
+		claimed_temperature_milestones.clear()
+		saved_fuel_stock.clear()
+		saved_temporary_upgrades = 0
 		changed.emit()
 		return
 	var saved_version := maxi(1, _safe_int(save_file.get_value("progress", "version", 1)))
 	var saved_automation: Variant = save_file.get_value("run", "automation", {})
 	automation_settings = saved_automation.duplicate(true) if saved_automation is Dictionary else {}
+	day_number = maxi(1, _safe_int(save_file.get_value("daily", "day_number", 1)))
+	day_elapsed = clampf(_safe_float(save_file.get_value("daily", "elapsed", 0.0)), 0.0, 720.0)
+	daily_ash = maxf(0.0, _safe_float(save_file.get_value("daily", "ash", 0.0)))
+	var saved_milestones: Variant = save_file.get_value("daily", "milestones", {})
+	claimed_temperature_milestones = saved_milestones.duplicate(true) if saved_milestones is Dictionary else {}
+	var stock_value: Variant = save_file.get_value("daily", "fuel_stock", {})
+	saved_fuel_stock = stock_value.duplicate(true) if stock_value is Dictionary else {}
+	saved_temporary_upgrades = maxi(0, _safe_int(save_file.get_value("daily", "temporary_upgrades", 0)))
+	silo_ash = maxf(0.0, _safe_float(save_file.get_value("facilities", "silo_ash", 0.0)))
+	uncollected_ash = maxf(0.0, _safe_float(save_file.get_value("facilities", "uncollected_ash", 0.0)))
+	var levels: Variant = save_file.get_value("facilities", "levels", facility_levels)
+	if levels is Dictionary:
+		for key in facility_levels: facility_levels[key] = clampi(_safe_int(levels.get(key, 0)), 0, 3)
+	truck_pending = bool(save_file.get_value("logistics", "truck_pending", false))
+	truck_seconds_left = clampf(_safe_float(save_file.get_value("logistics", "truck_seconds_left", 0.0)), 0.0, 60.0)
+	var cargo: Variant = save_file.get_value("logistics", "truck_cargo", {})
+	truck_cargo = cargo.duplicate(true) if cargo is Dictionary else {}
+	var tech: Variant = save_file.get_value("technology", "unlocked", {})
+	experimental_unlocked = tech.duplicate(true) if tech is Dictionary else {}
 	offline_saved_at = maxi(0, _safe_int(save_file.get_value("offline", "saved_at", 0)))
 	offline_fuel_seconds = clampf(_safe_float(save_file.get_value("offline", "fuel_seconds", 0.0)), 0.0, OFFLINE_CAP_SECONDS)
 	offline_soot_per_second = maxf(0.0, _safe_float(save_file.get_value("offline", "soot_per_second", 0.0)))
@@ -73,6 +124,19 @@ func save_progress() -> void:
 	save_file.set_value("offline", "saved_at", offline_saved_at)
 	save_file.set_value("offline", "fuel_seconds", offline_fuel_seconds)
 	save_file.set_value("offline", "soot_per_second", offline_soot_per_second)
+	save_file.set_value("daily", "day_number", day_number)
+	save_file.set_value("daily", "elapsed", day_elapsed)
+	save_file.set_value("daily", "ash", daily_ash)
+	save_file.set_value("daily", "milestones", claimed_temperature_milestones.duplicate(true))
+	save_file.set_value("daily", "fuel_stock", saved_fuel_stock.duplicate(true))
+	save_file.set_value("daily", "temporary_upgrades", saved_temporary_upgrades)
+	save_file.set_value("facilities", "silo_ash", silo_ash)
+	save_file.set_value("facilities", "uncollected_ash", uncollected_ash)
+	save_file.set_value("facilities", "levels", facility_levels.duplicate(true))
+	save_file.set_value("logistics", "truck_pending", truck_pending)
+	save_file.set_value("logistics", "truck_seconds_left", truck_seconds_left)
+	save_file.set_value("logistics", "truck_cargo", truck_cargo.duplicate(true))
+	save_file.set_value("technology", "unlocked", experimental_unlocked.duplicate(true))
 	var save_error := save_file.save(SAVE_PATH)
 	if save_error != OK:
 		push_warning("No se pudo guardar el progreso permanente (código %d)." % save_error)
@@ -106,8 +170,51 @@ func record_soot(amount: float) -> void:
 	if amount <= 0.0:
 		return
 	soot_earned += amount
-	current_soot += amount
+	daily_ash += amount
+	uncollected_ash += amount
 	changed.emit()
+
+func close_workday() -> float:
+	var soot_sale := silo_ash
+	silo_ash = 0.0
+	uncollected_ash = 0.0
+	daily_ash = 0.0
+	current_soot += soot_sale
+	day_number += 1
+	day_elapsed = 0.0
+	save_progress()
+	changed.emit()
+	return soot_sale
+
+func get_facility_capacity(kind: String) -> int:
+	var level := int(facility_levels.get(kind, 0))
+	return 20 + level * 5 if kind == "warehouse" else (300 + level * 150 if kind == "silo" else level)
+
+func advance_workday(seconds: float) -> bool:
+	if seconds <= 0.0:
+		return false
+	day_elapsed = minf(720.0, day_elapsed + seconds)
+	return day_elapsed >= 720.0
+
+func claim_temperature_milestone(temperature: float) -> int:
+	var awarded := 0
+	for threshold in [100, 500, 1000]:
+		var key := str(threshold)
+		if temperature >= float(threshold) and not bool(claimed_temperature_milestones.get(key, false)):
+			claimed_temperature_milestones[key] = true
+			permanent_points += 1
+			available_embers += 1
+			awarded += 1
+	if awarded > 0:
+		save_progress()
+		changed.emit()
+	return awarded
+
+func get_next_temperature_milestone() -> int:
+	for threshold in [100, 500, 1000]:
+		if not bool(claimed_temperature_milestones.get(str(threshold), false)):
+			return threshold
+	return 0
 
 func record_spend_soot(amount: float) -> void:
 	if amount > 0.0:

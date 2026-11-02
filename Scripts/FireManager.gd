@@ -3,6 +3,7 @@ class_name FireManager
 
 signal fire_changed
 signal gain_batch(amount: float)
+signal critical_explosion
 
 const FUEL_HOJARASCA: FuelData = preload("res://Resources/Hojarasca.tres")
 const FUEL_LENA: FuelData = preload("res://Resources/Leña.tres")
@@ -44,6 +45,8 @@ var fire_particles: GPUParticles3D
 var fire_audio: AudioStreamPlayer
 var audio_volume: float = 0.35
 var hud_signal_timer: float = 0.0
+var experimental_time_left: float = 0.0
+var experimental_heat_multiplier: float = 1.0
 
 func _ready() -> void:
 	if has_private_inventory:
@@ -52,6 +55,8 @@ func _ready() -> void:
 	_update_visuals()
 
 func add_fuel(fuel_id: String) -> bool:
+	if not GameManager.is_fuel_unlocked(fuel_id):
+		return false
 	var data: FuelData = FUEL_TYPES.get(fuel_id, FuelCatalog.get_by_id(fuel_id))
 	if data == null:
 		return false
@@ -62,10 +67,27 @@ func add_fuel(fuel_id: String) -> bool:
 	elif not GameManager.take_fuel(fuel_id):
 		return false
 	fuel_queue.append(data)
+	if fuel_id == "combustible_liquido" and burning and current_heat >= 100.0 and _queue_contains("carbon"):
+		fire_changed.emit()
+		if randf() < 0.05:
+			current_heat += 100.0
+			burning = false
+			fuel_queue.clear()
+			remaining_burn = 0.0
+			GameManager.close_workday()
+			critical_explosion.emit()
+			_update_visuals()
+			fire_changed.emit()
+			return true
 	if not burning:
 		active_quality = get_queue_quality()
 	fire_changed.emit()
 	return true
+
+func _queue_contains(fuel_id: String) -> bool:
+	for queued in fuel_queue:
+		if queued.fuel_id == fuel_id: return true
+	return false
 
 func get_queue_quality() -> float:
 	if fuel_queue.size() <= 1:
@@ -103,6 +125,13 @@ func stoke() -> bool:
 	if not burning or stoke_time_left > 0.0 or not GameManager.spend_soot(STOKE_COST):
 		return false
 	stoke_time_left = STOKE_DURATION
+	fire_changed.emit()
+	return true
+
+func activate_experimental(id: String) -> bool:
+	if not burning or not GameManager.activate_experimental(id): return false
+	experimental_time_left = 12.0 if id == "tritium" else 10.0
+	experimental_heat_multiplier = 2.0 if id == "tritium" else 1.5
 	fire_changed.emit()
 	return true
 
@@ -178,6 +207,9 @@ func _process(delta: float) -> void:
 	hud_signal_timer += delta
 	_run_automation()
 	stoke_time_left = maxf(0.0, stoke_time_left - delta)
+	if experimental_time_left > 0.0:
+		experimental_time_left = maxf(0.0, experimental_time_left - delta)
+		if experimental_time_left <= 0.0: experimental_heat_multiplier = 1.0
 	var time_left := delta
 	var pile_finished := false
 	while burning and time_left > 0.0:
@@ -188,7 +220,7 @@ func _process(delta: float) -> void:
 		var step := minf(time_left, remaining_burn)
 		var starting_heat := current_heat
 		var phase_heat_multiplier := IGNITION_HEAT_BONUS if fuel.fuel_id == "hojarasca" else 1.0
-		var heat_per_second := fuel.heat_value * phase_heat_multiplier * active_quality * GameManager.get_thermal_multiplier() * biome_heat_multiplier
+		var heat_per_second := fuel.heat_value * phase_heat_multiplier * active_quality * GameManager.get_thermal_multiplier() * biome_heat_multiplier * experimental_heat_multiplier
 		current_heat += heat_per_second * step
 		var average_heat := starting_heat + heat_per_second * step * 0.5
 		var production_multiplier := STOKE_MULTIPLIER if stoke_time_left > 0.0 else 1.0
