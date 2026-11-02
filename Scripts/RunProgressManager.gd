@@ -282,24 +282,10 @@ func has_advanced_tree() -> bool:
 	return permanent_points >= ADVANCED_TREE_THRESHOLD
 
 func get_thermal_bonus() -> float:
-	var bonus := 0.0
-	if owns_node("thermal_1"):
-		bonus += 0.10
-	if owns_node("thermal_2"):
-		bonus += 0.15
-	if owns_node("thermal_advanced"):
-		bonus += 0.25
-	return bonus
+	return 0.0
 
 func get_soot_bonus() -> float:
-	var bonus := 0.0
-	if owns_node("soot_1"):
-		bonus += 0.10
-	if owns_node("soot_2"):
-		bonus += 0.15
-	if owns_node("soot_advanced"):
-		bonus += 0.25
-	return bonus
+	return 0.0
 
 func _safe_float(value: Variant) -> float:
 	if value is float or value is int:

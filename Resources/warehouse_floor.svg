@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="1200" viewBox="0 0 1200 1200">
+<defs>
+ <linearGradient id="floor" x2="0" y2="1"><stop stop-color="#4a4035"/><stop offset="1" stop-color="#292623"/></linearGradient>
+ <pattern id="boards" width="360" height="180" patternUnits="userSpaceOnUse">
+  <rect width="360" height="180" fill="url(#floor)"/>
+  <path d="M0 3h360M0 176h360" stroke="#171513" stroke-width="7" opacity=".8"/>
+  <path d="M0 8h360M0 170h360" stroke="#b0926a" stroke-width="3" opacity=".34"/>
+  <path d="M94 8v78m126-78v72m-52 26v36m126-34v42" stroke="#171513" stroke-width="6" opacity=".62"/>
+  <path d="M20 42c30-8 42 10 70 1m54 60c25-6 42 7 68 0m64 43c24-8 45 5 68-2" fill="none" stroke="#b18b5e" stroke-width="3" opacity=".25"/>
+ </pattern>
+</defs>
+<rect width="1200" height="1200" fill="url(#boards)"/>
+<!-- recessed wagon rails in perspective -->
+<path d="M475 0L280 1200M725 0L920 1200" fill="none" stroke="#151819" stroke-width="35" opacity=".9"/>
+<path d="M475 0L280 1200M725 0L920 1200" fill="none" stroke="#9b886b" stroke-width="12" opacity=".9"/>
+<g stroke="#211f1b" stroke-width="22" opacity=".95">
+ <path d="M442 125l296-3M424 250l333-3M402 382l370-4M379 520l412-4M356 660l454-5M333 803l496-5M310 955l537-6M285 1110l585-6"/>
+</g>
+<path d="M0 0h1200v1200H0z" fill="none" stroke="#0f100f" stroke-width="45" opacity=".36"/>
+<g fill="#d0ad75" opacity=".42"><circle cx="80" cy="92" r="5"/><circle cx="1120" cy="92" r="5"/><circle cx="80" cy="1108" r="5"/><circle cx="1120" cy="1108" r="5"/></g>
+</svg>

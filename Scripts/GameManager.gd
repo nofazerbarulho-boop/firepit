@@ -86,12 +86,12 @@ func get_advanced_tree_progress() -> String:
 
 func get_permanent_nodes() -> Array[Dictionary]:
 	return [
-		{"id": "thermal_1", "branch": "combustion", "name": "Lecho caliente", "cost": 2, "effect": "+10% de calor", "requires": "", "advanced": false},
-		{"id": "thermal_2", "branch": "combustion", "name": "Tiro constante", "cost": 4, "effect": "+15% de calor", "requires": "thermal_1", "advanced": false},
-		{"id": "thermal_advanced", "branch": "combustion", "name": "Corazón de brasa", "cost": 6, "effect": "+25% de calor", "requires": "thermal_2", "advanced": true},
-		{"id": "soot_1", "branch": "soot", "name": "Carbonilla fina", "cost": 2, "effect": "+10% de hollín", "requires": "", "advanced": false},
-		{"id": "soot_2", "branch": "soot", "name": "Condensador", "cost": 4, "effect": "+15% de hollín", "requires": "soot_1", "advanced": false},
-		{"id": "soot_advanced", "branch": "soot", "name": "Veta negra", "cost": 6, "effect": "+25% de hollín", "requires": "soot_2", "advanced": true}
+		{"id": "thermal_1", "branch": "combustion", "name": "Habilidad I", "cost": 1, "effect": "Efecto por definir", "requires": "", "advanced": false},
+		{"id": "thermal_2", "branch": "combustion", "name": "Habilidad II", "cost": 2, "effect": "Efecto por definir", "requires": "thermal_1", "advanced": false},
+		{"id": "thermal_advanced", "branch": "combustion", "name": "Habilidad III", "cost": 3, "effect": "Efecto por definir", "requires": "thermal_1", "advanced": false},
+		{"id": "soot_1", "branch": "soot", "name": "Habilidad IV", "cost": 4, "effect": "Efecto por definir", "requires": "thermal_1", "advanced": false},
+		{"id": "soot_2", "branch": "soot", "name": "Habilidad V", "cost": 5, "effect": "Efecto por definir", "requires": "thermal_advanced", "advanced": false},
+		{"id": "soot_advanced", "branch": "soot", "name": "Habilidad VI", "cost": 6, "effect": "Efecto por definir", "requires": "soot_1", "advanced": false}
 	]
 
 func owns_permanent_node(node_id: String) -> bool:

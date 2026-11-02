@@ -42,6 +42,8 @@ var fuel_priority: Array[String] = ["hojarasca", "leña", "tronco", "turba"]
 var visual_tier: int = 0
 var cosmetic_skin: int = 0
 var fire_particles: GPUParticles3D
+var spark_particles: GPUParticles3D
+var inner_flame: MeshInstance3D
 var fire_audio: AudioStreamPlayer
 var audio_volume: float = 0.35
 var hud_signal_timer: float = 0.0
@@ -345,6 +347,27 @@ func _build_fire_visuals() -> void:
 	flame_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	flame_material.emission_enabled = true
 	flame_material.emission = Color(1.0, 0.22, 0.025)
+	flame_material.emission_energy_multiplier = 2.2
+	flame_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	flame_material.albedo_color = Color(1.0, 0.3, 0.025, 0.82)
+	flame_material.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
+	inner_flame = MeshInstance3D.new()
+	inner_flame.name = "FlameCore"
+	var core_mesh := SphereMesh.new()
+	core_mesh.radius = 0.25
+	core_mesh.height = 0.85
+	inner_flame.mesh = core_mesh
+	inner_flame.position = Vector3(0.0, 0.04, -0.04)
+	var core_material := StandardMaterial3D.new()
+	core_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	core_material.emission_enabled = true
+	core_material.emission = Color(1.0, 0.78, 0.24)
+	core_material.emission_energy_multiplier = 3.0
+	core_material.albedo_color = Color(1.0, 0.78, 0.24, 0.9)
+	core_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	core_material.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
+	inner_flame.material_override = core_material
+	flame.add_child(inner_flame)
 	fire_particles = GPUParticles3D.new()
 	fire_particles.name = "FireParticles"
 	fire_particles.amount = 24
@@ -365,6 +388,34 @@ func _build_fire_visuals() -> void:
 	particle_mesh.height = 0.07
 	fire_particles.draw_pass_1 = particle_mesh
 	add_child(fire_particles)
+	spark_particles = GPUParticles3D.new()
+	spark_particles.name = "EmberSparks"
+	spark_particles.amount = 18
+	spark_particles.lifetime = 1.15
+	spark_particles.position.y = 0.35
+	var spark_process := ParticleProcessMaterial.new()
+	spark_process.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_SPHERE
+	spark_process.emission_sphere_radius = 0.22
+	spark_process.direction = Vector3(0.0, 1.0, 0.0)
+	spark_process.spread = 48.0
+	spark_process.initial_velocity_min = 0.45
+	spark_process.initial_velocity_max = 1.4
+	spark_process.gravity = Vector3(0.0, 0.35, 0.0)
+	spark_process.scale_min = 0.018
+	spark_process.scale_max = 0.045
+	spark_process.color = Color(1.0, 0.72, 0.2, 0.95)
+	spark_particles.process_material = spark_process
+	var spark_mesh := SphereMesh.new()
+	spark_mesh.radius = 0.025
+	spark_mesh.height = 0.05
+	var spark_material := StandardMaterial3D.new()
+	spark_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	spark_material.emission_enabled = true
+	spark_material.emission = Color(1.0, 0.48, 0.08)
+	spark_material.emission_energy_multiplier = 2.0
+	spark_mesh.material = spark_material
+	spark_particles.draw_pass_1 = spark_mesh
+	add_child(spark_particles)
 	fire_audio = AudioStreamPlayer.new()
 	fire_audio.name = "FireAudio"
 	fire_audio.stream = _make_fire_loop()
@@ -404,12 +455,17 @@ func _update_visuals() -> void:
 	if fire_particles != null:
 		fire_particles.emitting = current_heat > 0.1
 		fire_particles.amount = 8 + int(clampf(current_heat, 0.0, 60.0))
+	if spark_particles != null:
+		spark_particles.emitting = current_heat > 0.1
+		spark_particles.amount = 4 + int(clampf(current_heat * 0.45, 0.0, 24.0))
 	if fire_audio != null:
 		fire_audio.volume_db = -80.0 if current_heat <= 0.1 or audio_volume <= 0.001 else linear_to_db(audio_volume) - 10.0 + minf(current_heat / 10.0, 1.0) * 8.0
 	var intensity := clampf(current_heat / 45.0, 0.15, 1.0)
 	var time := float(Time.get_ticks_msec()) / 1000.0
 	var flicker := 1.0 + sin(time * 13.0) * 0.06 + sin(time * 21.7) * 0.035
 	flame.scale = Vector3(0.6 * flicker, intensity * flicker, 0.6 * flicker)
+	if is_instance_valid(inner_flame):
+		inner_flame.scale = Vector3(0.68, 0.78 + sin(time * 17.0) * 0.08, 0.68)
 	var tier_colors: Array[Color] = [Color(1.0, 0.23, 0.025), Color(0.25, 0.92, 0.72), Color(0.45, 0.62, 1.0), Color(0.42, 0.16, 0.68)]
 	var skin_colors: Array[Color] = [Color.WHITE, Color(1.0, 0.65, 0.28), Color(0.72, 0.9, 1.0)]
 	var base_color: Color = tier_colors[visual_tier] * skin_colors[cosmetic_skin]

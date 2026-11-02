@@ -33,12 +33,10 @@ var second_fire_label: Label
 var delivery_label: Label
 var daily_save_elapsed: float = 0.0
 var biome_index: int = 0
-var biome_label: Label
 var second_upgrade_button: Button
 var automation_controls: Array[Dictionary] = []
 var presentation_label: Label
 var tier_button: Button
-var skin_button: Button
 var accessibility_button: Button
 var volume_button: Button
 var selected_skin: int = 0
@@ -54,6 +52,257 @@ var facility_buttons: Dictionary = {}
 var wagon_button: Button
 var truck_button: Button
 var experimental_buttons: Dictionary = {}
+var menu_panel: PanelContainer
+var menu_toggle: Button
+var main_menu_layer: CanvasLayer
+var main_menu_root: Control
+var main_menu_panel: PanelContainer
+var main_menu_layout: VBoxContainer
+var options_volume_value: Label
+var pregame_selection_label: Label
+var options_button: Button
+var game_started: bool = false
+var return_to_game_after_options: bool = false
+var camera_dragging: bool = false
+var camera_last_mouse := Vector2.ZERO
+var camera_node: Camera3D
+var player_body: CharacterBody3D
+var player_position := Vector3(0.0, 0.9, 6.0)
+var camera_yaw: float = 0.0
+var camera_pitch: float = -0.08
+var mouse_sensitivity: float = 0.0025
+
+class ResourceBadge extends Control:
+	var ember: bool = false
+	func _draw() -> void:
+		var center := size * 0.5
+		if ember:
+			draw_circle(center, 15.0, Color("7c4d20"))
+			draw_arc(center, 11.0, 0.0, TAU, 32, Color("f3c65c"), 2.0, true)
+			var spark := PackedVector2Array([center + Vector2(0, -9), center + Vector2(3, -2), center + Vector2(8, 0), center + Vector2(2, 3), center + Vector2(0, 9), center + Vector2(-3, 3), center + Vector2(-8, 0), center + Vector2(-2, -3)])
+			draw_colored_polygon(spark, Color("ffe78c"))
+		else:
+			draw_circle(center, 15.0, Color("423e38"))
+			draw_colored_polygon(PackedVector2Array([center + Vector2(-10, 5), center + Vector2(-7, -2), center + Vector2(-1, -8), center + Vector2(4, -5), center + Vector2(10, 2), center + Vector2(8, 7)]), Color("aaa69d"))
+			draw_circle(center + Vector2(-3, 1), 2.0, Color("d2ccc0"))
+
+class SkillTreeConnections extends Control:
+	var points: Array[Vector2] = []
+	var links: Array[Vector2i] = []
+	func _draw() -> void:
+		for link in links:
+			if link.x >= points.size() or link.y >= points.size():
+				continue
+			var a := Vector2(points[link.x].x * size.x, points[link.x].y * size.y)
+			var b := Vector2(points[link.y].x * size.x, points[link.y].y * size.y)
+			var bend := Vector2((a.x + b.x) * 0.5, minf(a.y, b.y) - 22.0 if absf(a.y - b.y) > 30.0 else a.y - 12.0)
+			draw_line(a, bend, Color("171819"), 11.0, true)
+			draw_line(bend, b, Color("171819"), 11.0, true)
+			draw_line(a + Vector2(0, -1), bend + Vector2(0, -1), Color("827b6e"), 3.0, true)
+			draw_line(bend + Vector2(0, -1), b + Vector2(0, -1), Color("827b6e"), 3.0, true)
+			draw_circle(bend, 3.0, Color("d08a43"))
+
+func _unhandled_input(event: InputEvent) -> void:
+	if event is InputEventKey and event.pressed and not event.echo:
+		if event.keycode == KEY_ESCAPE:
+			Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+		elif event.keycode == KEY_TAB:
+			_toggle_menu()
+	elif event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
+		if Input.mouse_mode != Input.MOUSE_MODE_CAPTURED:
+			Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+	elif event is InputEventMouseMotion and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
+		var look_motion: InputEventMouseMotion = event as InputEventMouseMotion
+		camera_yaw -= look_motion.relative.x * mouse_sensitivity
+		camera_pitch = clampf(camera_pitch - look_motion.relative.y * mouse_sensitivity, -1.15, 1.05)
+		_update_camera_position()
+
+func _update_camera_position() -> void:
+	if is_instance_valid(camera_node):
+		if is_instance_valid(player_body):
+			player_body.rotation.y = camera_yaw
+			camera_node.rotation = Vector3(camera_pitch, 0.0, 0.0)
+		else:
+			camera_node.position = player_position
+			camera_node.rotation = Vector3(camera_pitch, camera_yaw, 0.0)
+
+func _toggle_menu() -> void:
+	if is_instance_valid(menu_panel):
+		menu_panel.visible = not menu_panel.visible
+		menu_toggle.text = "×" if menu_panel.visible else "☰"
+
+func _prepare_main_menu_screen(title_text: String) -> void:
+	if not is_instance_valid(main_menu_layer):
+		main_menu_layer = CanvasLayer.new()
+		main_menu_layer.layer = 20
+		add_child(main_menu_layer)
+		main_menu_root = Control.new()
+		main_menu_root.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		main_menu_layer.add_child(main_menu_root)
+	main_menu_layer.visible = true
+	for child in main_menu_root.get_children():
+		child.queue_free()
+	var shade := ColorRect.new()
+	shade.color = Color(0.015, 0.012, 0.01, 0.78)
+	shade.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	main_menu_root.add_child(shade)
+	var center := CenterContainer.new()
+	center.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	main_menu_root.add_child(center)
+	main_menu_panel = PanelContainer.new()
+	main_menu_panel.custom_minimum_size = Vector2(440.0, 0.0)
+	main_menu_panel.add_theme_stylebox_override("panel", _make_skill_panel_style(Color(0.07, 0.055, 0.045, 0.97), Color(0.68, 0.39, 0.16, 1.0)))
+	center.add_child(main_menu_panel)
+	main_menu_layout = VBoxContainer.new()
+	main_menu_layout.add_theme_constant_override("separation", 14)
+	main_menu_layout.add_theme_constant_override("margin_left", 24)
+	main_menu_layout.add_theme_constant_override("margin_right", 24)
+	main_menu_layout.add_theme_constant_override("margin_top", 24)
+	main_menu_layout.add_theme_constant_override("margin_bottom", 24)
+	main_menu_panel.add_child(main_menu_layout)
+	var title := Label.new()
+	title.text = title_text
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	title.add_theme_font_size_override("font_size", 30)
+	main_menu_layout.add_child(title)
+
+func _add_main_menu_button(label_text: String, callback: Callable) -> Button:
+	var button := Button.new()
+	button.text = label_text
+	button.custom_minimum_size.y = 48.0
+	button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	button.pressed.connect(callback)
+	main_menu_layout.add_child(button)
+	return button
+
+func _show_main_menu() -> void:
+	_prepare_main_menu_screen("HOGUERAS")
+	_add_main_menu_button("Iniciar juego", _on_start_pressed)
+	_add_main_menu_button("Configuración", _open_options_from_menu)
+	_add_main_menu_button("Salir", _quit_game)
+
+func _has_player_progress() -> bool:
+	return GameManager.soot_earned > 0.0 or GameManager.get_soot() > 0.0 or GameManager.get_permanent_points() > 0 or GameManager.get_day_number() > 1
+
+func _on_start_pressed() -> void:
+	if _has_player_progress():
+		_show_pregame_selection()
+	else:
+		_begin_game()
+
+func _show_pregame_selection() -> void:
+	_prepare_main_menu_screen("Preparar partida")
+	var progress_note := Label.new()
+	progress_note.text = "Elige el entorno y la apariencia de tu hoguera."
+	progress_note.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	main_menu_layout.add_child(progress_note)
+	pregame_selection_label = Label.new()
+	pregame_selection_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	main_menu_layout.add_child(pregame_selection_label)
+	var biomes := HBoxContainer.new()
+	main_menu_layout.add_child(biomes)
+	var forest := Button.new()
+	forest.text = "Bosque"
+	forest.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	forest.pressed.connect(_on_select_biome.bind(0))
+	biomes.add_child(forest)
+	var bog := Button.new()
+	bog.text = "Turbera (5 brasas)"
+	bog.disabled = GameManager.get_permanent_points() < 5
+	bog.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	bog.pressed.connect(_on_select_biome.bind(1))
+	biomes.add_child(bog)
+	_add_main_menu_button("Cambiar apariencia del fuego", _cycle_cosmetic_skin)
+	_add_main_menu_button("Empezar", _begin_game)
+	_add_main_menu_button("Volver", _show_main_menu)
+	_update_pregame_selection_label()
+
+func _update_pregame_selection_label() -> void:
+	if is_instance_valid(pregame_selection_label):
+		var biome_name := "Bosque" if biome_index == 0 else "Turbera"
+		var skin_name: Array[String] = ["Natural", "Ámbar", "Azul pálido"]
+		pregame_selection_label.text = "Bioma: %s  ·  Fuego: %s" % [biome_name, skin_name[selected_skin]]
+
+func _begin_game() -> void:
+	game_started = true
+	main_menu_layer.visible = false
+	hud_layer.visible = true
+	menu_panel.visible = false
+	menu_toggle.text = "☰"
+	fire.set_process(true)
+	second_fire.set_process(true)
+	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	_refresh_hud()
+
+func _open_options_from_menu() -> void:
+	return_to_game_after_options = false
+	_show_options_screen()
+
+func _open_options_from_game() -> void:
+	return_to_game_after_options = true
+	_show_options_screen()
+
+func _show_options_screen() -> void:
+	_prepare_main_menu_screen("Configuración")
+	var sound_label := Label.new()
+	sound_label.text = "Volumen de sonidos del juego"
+	main_menu_layout.add_child(sound_label)
+	var sound_row := HBoxContainer.new()
+	main_menu_layout.add_child(sound_row)
+	var volume_slider := HSlider.new()
+	volume_slider.min_value = 0.0
+	volume_slider.max_value = 1.0
+	volume_slider.step = 0.05
+	volume_slider.value = fire_volume
+	volume_slider.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	volume_slider.value_changed.connect(_set_fire_volume)
+	sound_row.add_child(volume_slider)
+	options_volume_value = Label.new()
+	options_volume_value.custom_minimum_size.x = 52.0
+	options_volume_value.text = "%d%%" % int(fire_volume * 100.0)
+	sound_row.add_child(options_volume_value)
+	var sensitivity_label := Label.new()
+	sensitivity_label.text = "Sensibilidad del ratón"
+	main_menu_layout.add_child(sensitivity_label)
+	var sensitivity_slider := HSlider.new()
+	sensitivity_slider.min_value = 0.001
+	sensitivity_slider.max_value = 0.006
+	sensitivity_slider.step = 0.00025
+	sensitivity_slider.value = mouse_sensitivity
+	sensitivity_slider.value_changed.connect(_set_mouse_sensitivity)
+	main_menu_layout.add_child(sensitivity_slider)
+	_add_main_menu_button("Accesibilidad: cambiar texto/contraste", _cycle_accessibility)
+	_add_main_menu_button("Alternar pantalla completa", _toggle_fullscreen)
+	_add_main_menu_button("Volver", _close_options_screen)
+
+func _set_fire_volume(value: float) -> void:
+	fire_volume = clampf(value, 0.0, 1.0)
+	fire.set_fire_volume(fire_volume)
+	second_fire.set_fire_volume(fire_volume)
+	if is_instance_valid(options_volume_value):
+		options_volume_value.text = "%d%%" % int(fire_volume * 100.0)
+	if is_instance_valid(volume_button):
+		volume_button.text = "Volumen del fuego: %d%%" % int(fire_volume * 100.0)
+	_save_presentation_settings()
+
+func _set_mouse_sensitivity(value: float) -> void:
+	mouse_sensitivity = clampf(value, 0.001, 0.006)
+	_save_presentation_settings()
+
+func _toggle_fullscreen() -> void:
+	var is_fullscreen := DisplayServer.window_get_mode() == DisplayServer.WINDOW_MODE_FULLSCREEN
+	DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_WINDOWED if is_fullscreen else DisplayServer.WINDOW_MODE_FULLSCREEN)
+
+func _close_options_screen() -> void:
+	if return_to_game_after_options:
+		main_menu_layer.visible = false
+		return_to_game_after_options = false
+	else:
+		_show_main_menu()
+
+func _quit_game() -> void:
+	_save_offline_progress()
+	get_tree().quit()
 
 func _ready() -> void:
 	second_fire.has_private_inventory = true
@@ -65,6 +314,11 @@ func _ready() -> void:
 	_build_world()
 	_build_hud()
 	_load_presentation_settings()
+	_show_main_menu()
+	hud_layer.visible = false
+	menu_panel.visible = false
+	fire.set_process(false)
+	second_fire.set_process(false)
 	GameManager.economy_changed.connect(_request_hud_refresh)
 	GameManager.inventory_changed.connect(_request_hud_refresh)
 	fire.fire_changed.connect(_request_hud_refresh)
@@ -76,6 +330,8 @@ func _ready() -> void:
 	_refresh_hud()
 
 func _process(delta: float) -> void:
+	if not game_started:
+		return
 	if hud_refresh_pending:
 		hud_refresh_elapsed += delta
 		if hud_refresh_elapsed >= 0.1:
@@ -96,20 +352,224 @@ func _process(delta: float) -> void:
 	if milestone_reward > 0:
 		feedback_label.text = "¡Hito de temperatura! +%d brasa(s) permanente(s)." % milestone_reward
 
+func _physics_process(delta: float) -> void:
+	if not game_started:
+		return
+	var move := Vector2.ZERO
+	if Input.is_key_pressed(KEY_A) or Input.is_key_pressed(KEY_LEFT): move.x -= 1.0
+	if Input.is_key_pressed(KEY_D) or Input.is_key_pressed(KEY_RIGHT): move.x += 1.0
+	if Input.is_key_pressed(KEY_W) or Input.is_key_pressed(KEY_UP): move.y -= 1.0
+	if Input.is_key_pressed(KEY_S) or Input.is_key_pressed(KEY_DOWN): move.y += 1.0
+	var forward := -camera_node.global_transform.basis.z
+	forward.y = 0.0
+	forward = forward.normalized()
+	var right := camera_node.global_transform.basis.x
+	right.y = 0.0
+	right = right.normalized()
+	var direction := (right * move.x + forward * -move.y).normalized() if move.length_squared() > 0.0 else Vector3.ZERO
+	var speed := 5.2 if Input.is_key_pressed(KEY_SHIFT) else 3.2
+	if is_instance_valid(player_body):
+		player_body.velocity = direction * speed
+		player_body.move_and_slide()
+		player_position = player_body.global_position
+	else:
+		player_position += direction * speed * delta
+		player_position.x = clampf(player_position.x, -11.0, 11.0)
+		player_position.z = clampf(player_position.z, -11.0, 11.0)
+	_update_camera_position()
+
 func _build_world() -> void:
-	var camera := get_node_or_null("Camera3D") as Camera3D
-	if camera != null:
-		camera.look_at(Vector3(0.0, 0.6, 0.0))
+	camera_node = get_node_or_null("Camera3D") as Camera3D
+	if camera_node != null:
+		camera_node.projection = Camera3D.PROJECTION_PERSPECTIVE
+		camera_node.fov = 78.0
+		player_position = Vector3(0.0, 0.9, 6.0)
+		player_body = CharacterBody3D.new()
+		player_body.name = "Player"
+		player_body.position = player_position
+		var player_shape := CollisionShape3D.new()
+		var capsule := CapsuleShape3D.new()
+		capsule.radius = 0.32
+		capsule.height = 1.8
+		player_shape.shape = capsule
+		player_body.add_child(player_shape)
+		add_child(player_body)
+		remove_child(camera_node)
+		player_body.add_child(camera_node)
+		camera_node.position = Vector3(0.0, 0.75, 0.0)
+		_update_camera_position()
+	var atmosphere := WorldEnvironment.new()
+	var environment := Environment.new()
+	environment.background_mode = Environment.BG_COLOR
+	environment.background_color = Color(0.055, 0.048, 0.04)
+	environment.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
+	environment.ambient_light_color = Color(0.52, 0.43, 0.32)
+	environment.ambient_light_energy = 0.55
+	environment.tonemap_mode = Environment.TONE_MAPPER_FILMIC
+	atmosphere.environment = environment
+	add_child(atmosphere)
+	_build_warehouse()
+	var floor_body := StaticBody3D.new()
+	floor_body.name = "WalkableFloor"
+	var floor_shape_node := CollisionShape3D.new()
+	var floor_shape := BoxShape3D.new()
+	floor_shape.size = Vector3(24.0, 0.1, 24.0)
+	floor_shape_node.shape = floor_shape
+	floor_shape_node.position.y = -0.05
+	floor_body.add_child(floor_shape_node)
+	add_child(floor_body)
+	var floor_node := get_node_or_null("Ground") as MeshInstance3D
+	if floor_node != null:
+		var floor_material := StandardMaterial3D.new()
+		floor_material.albedo_texture = load("res://Resources/warehouse_floor.svg") as Texture2D
+		floor_material.roughness = 0.92
+		floor_node.material_override = floor_material
+		floor_node.scale = Vector3(1.5, 1.0, 1.5)
 	fire_light = OmniLight3D.new()
 	fire_light.position = Vector3(0.0, 1.0, 0.0)
 	fire_light.light_color = Color(1.0, 0.3, 0.08)
 	fire_light.light_energy = 0.0
 	fire_light.omni_range = 6.0
 	fire.add_child(fire_light)
-	_create_facility_visual("warehouse", Vector3(-2.0, 0.45, -1.2), Vector3(1.2, 0.9, 1.0), Color(0.38, 0.29, 0.2))
-	_create_facility_visual("silo", Vector3(2.0, 0.7, -1.2), Vector3(0.8, 1.4, 0.8), Color(0.52, 0.55, 0.53), true)
-	_create_facility_visual("workshop", Vector3(-2.0, 0.35, 1.2), Vector3(0.9, 0.7, 0.9), Color(0.32, 0.39, 0.35))
-	_create_facility_visual("garage", Vector3(2.0, 0.35, 1.2), Vector3(1.0, 0.7, 0.9), Color(0.35, 0.36, 0.42))
+
+func _make_surface(color: Color, roughness: float = 0.8, metallic: float = 0.0) -> StandardMaterial3D:
+	var material := StandardMaterial3D.new()
+	material.albedo_color = color
+	material.roughness = roughness
+	material.metallic = metallic
+	return material
+
+func _add_box(name: String, at: Vector3, dimensions: Vector3, material: Material) -> MeshInstance3D:
+	var body := StaticBody3D.new()
+	body.name = name + "Body"
+	body.position = at
+	var collision := CollisionShape3D.new()
+	var box_shape := BoxShape3D.new()
+	box_shape.size = dimensions
+	collision.shape = box_shape
+	body.add_child(collision)
+	var node := MeshInstance3D.new()
+	node.name = name
+	var box := BoxMesh.new()
+	box.size = dimensions
+	box.material = material
+	node.mesh = box
+	body.add_child(node)
+	add_child(body)
+	return node
+
+func _add_cylinder(name: String, at: Vector3, radius: float, height: float, material: Material, tilt: Vector3 = Vector3.ZERO) -> MeshInstance3D:
+	var node := MeshInstance3D.new()
+	node.name = name
+	var cylinder := CylinderMesh.new()
+	cylinder.top_radius = radius * 0.9
+	cylinder.bottom_radius = radius
+	cylinder.height = height
+	cylinder.material = material
+	node.mesh = cylinder
+	node.position = at
+	node.rotation = tilt
+	add_child(node)
+	return node
+
+func _add_sphere(name: String, at: Vector3, dimensions: Vector3, material: Material) -> MeshInstance3D:
+	var node := MeshInstance3D.new()
+	node.name = name
+	var sphere := SphereMesh.new()
+	sphere.radius = 0.5
+	sphere.height = 1.0
+	sphere.material = material
+	node.mesh = sphere
+	node.position = at
+	node.scale = dimensions
+	add_child(node)
+	return node
+
+func _build_warehouse() -> void:
+	var brick := _make_surface(Color(0.24, 0.22, 0.20))
+	var steel := _make_surface(Color(0.12, 0.14, 0.15), 0.48, 0.55)
+	var beam := _make_surface(Color(0.20, 0.17, 0.14), 0.68, 0.15)
+	var glass := _make_surface(Color(0.36, 0.48, 0.52, 0.72), 0.24, 0.18)
+	glass.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	_add_box("RearWall", Vector3(0, 4.0, -12.2), Vector3(24.4, 8.0, 0.4), brick)
+	_add_box("LeftWall", Vector3(-12.2, 4.0, 0), Vector3(0.4, 8.0, 24.4), brick)
+	_add_box("RightWall", Vector3(12.2, 4.0, 0), Vector3(0.4, 8.0, 24.4), brick)
+	for x in [-9.0, -5.4, -1.8, 1.8, 5.4, 9.0]:
+		_add_box("RearWindow", Vector3(x, 6.25, -11.96), Vector3(2.45, 1.5, 0.08), glass)
+		_add_box("RearWindowSill", Vector3(x, 5.45, -11.9), Vector3(2.7, 0.12, 0.18), steel)
+	for side in [-1.0, 1.0]:
+		for z in [-8.0, -3.0, 2.0, 7.0]:
+			_add_box("SideWindow", Vector3(side * 11.96, 6.1, z), Vector3(0.08, 1.65, 2.8), glass)
+			_add_box("SideWindowSill", Vector3(side * 11.9, 5.2, z), Vector3(0.18, 0.12, 3.0), steel)
+	for x in [-11.6, -7.0, -2.35, 2.35, 7.0, 11.6]:
+		_add_box("RoofTruss", Vector3(x, 7.55, 0), Vector3(0.22, 0.22, 23.0), beam)
+		_add_box("CrossBeam", Vector3(x, 7.45, 0), Vector3(24.0, 0.2, 0.22), beam)
+		_add_box("ColumnL", Vector3(x, 3.9, -11.8), Vector3(0.38, 7.8, 0.38), steel)
+		_add_box("ColumnR", Vector3(x, 3.9, 11.8), Vector3(0.38, 7.8, 0.38), steel)
+	for z in [-8.0, -4.0, 0.0, 4.0, 8.0]:
+		_add_box("Catwalk", Vector3(0, 5.05, z), Vector3(23.2, 0.12, 0.16), steel)
+		_add_box("CatwalkRail", Vector3(0, 5.52, z), Vector3(23.2, 0.08, 0.08), beam)
+	for x in [-1.1, 1.1]:
+		_add_box("MineRail", Vector3(x, 0.035, -1.5), Vector3(0.11, 0.07, 20.0), steel)
+	for z in range(-11, 10, 2):
+		_add_box("RailSleeper", Vector3(0, 0.025, float(z)), Vector3(2.9, 0.05, 0.22), beam)
+	for side in [-1.0, 1.0]:
+		for z in [-5.0, 1.0, 7.0]:
+			_add_box("BenchSeat", Vector3(side * 8.6, 0.62, z), Vector3(2.2, 0.16, 0.72), beam)
+			for leg_x in [-0.8, 0.8]:
+				_add_box("BenchLeg", Vector3(side * 8.6 + leg_x, 0.3, z), Vector3(0.12, 0.6, 0.58), steel)
+	for x in [-7.0, 0.0, 7.0]:
+		_add_box("HangingCable", Vector3(x, 6.95, 0.0), Vector3(0.035, 1.0, 0.035), steel)
+		var lamp := OmniLight3D.new()
+		lamp.position = Vector3(x, 6.3, 0.0)
+		lamp.light_color = Color(1.0, 0.67, 0.35)
+		lamp.light_energy = 0.7
+		lamp.omni_range = 5.0
+		add_child(lamp)
+	# Objetos de trabajo, carbón y vegetación para que el recinto se sienta habitado.
+	var crate_wood := _make_surface(Color(0.29, 0.19, 0.11), 0.9)
+	var pot_material := _make_surface(Color(0.35, 0.20, 0.12), 0.82)
+	var leaf_material := _make_surface(Color(0.12, 0.22, 0.12), 0.95)
+	var coal_material := _make_surface(Color(0.055, 0.052, 0.05), 0.96)
+	var brass := _make_surface(Color(0.48, 0.31, 0.12), 0.35, 0.62)
+	for crate_data in [Vector3(-9.2, 0.42, -8.8), Vector3(-8.5, 0.42, -8.15), Vector3(9.2, 0.42, -9.0)]:
+		_add_box("SupplyCrate", crate_data, Vector3(0.85, 0.84, 0.85), crate_wood)
+		_add_box("CrateBand", crate_data + Vector3(0.0, 0.0, 0.44), Vector3(0.9, 0.08, 0.035), brass)
+	for plant_at in [Vector3(-10.0, 0.0, -3.5), Vector3(10.0, 0.0, -2.0), Vector3(-9.5, 0.0, 5.0), Vector3(9.8, 0.0, 6.0)]:
+		_add_cylinder("TerracottaPot", plant_at + Vector3(0.0, 0.28, 0.0), 0.38, 0.56, pot_material)
+		_add_cylinder("PlantStem", plant_at + Vector3(0.0, 1.1, 0.0), 0.055, 1.4, leaf_material)
+		for leaf_index in range(5):
+			var angle := float(leaf_index) * TAU / 5.0
+			var leaf_offset := Vector3(cos(angle) * 0.3, 0.85 + 0.15 * sin(angle * 2.0), sin(angle) * 0.3)
+			var leaf := _add_sphere("PlantLeaf", plant_at + leaf_offset + Vector3(0.0, 0.7, 0.0), Vector3(0.18, 0.72, 0.2), leaf_material)
+			leaf.rotation.z = cos(angle) * 0.45
+	# Vagoneta cargada, como la referencia visual, junto al lateral de la nave.
+	var cart_at := Vector3(7.0, 0.0, -7.0)
+	var cart_metal := _make_surface(Color(0.22, 0.23, 0.23), 0.42, 0.66)
+	_add_box("CoalCartFloor", cart_at + Vector3(0.0, 0.62, 0.0), Vector3(2.0, 0.14, 2.35), cart_metal)
+	_add_box("CoalCartFront", cart_at + Vector3(0.0, 1.0, -1.08), Vector3(2.0, 0.72, 0.14), cart_metal)
+	_add_box("CoalCartBack", cart_at + Vector3(0.0, 1.0, 1.08), Vector3(2.0, 0.72, 0.14), cart_metal)
+	_add_box("CoalCartLeft", cart_at + Vector3(-0.93, 1.0, 0.0), Vector3(0.14, 0.72, 2.0), cart_metal)
+	_add_box("CoalCartRight", cart_at + Vector3(0.93, 1.0, 0.0), Vector3(0.14, 0.72, 2.0), cart_metal)
+	for wheel_x in [-0.82, 0.82]:
+		for wheel_z in [-0.78, 0.78]:
+			_add_cylinder("CartWheel", cart_at + Vector3(wheel_x, 0.3, wheel_z), 0.36, 0.16, steel, Vector3(0.0, 0.0, PI / 2.0))
+	for coal_index in range(24):
+		var coal_at := cart_at + Vector3(randf_range(-0.8, 0.8), randf_range(1.12, 1.48), randf_range(-0.9, 0.9))
+		_add_sphere("CoalLump", coal_at, Vector3(randf_range(0.24, 0.42), randf_range(0.18, 0.32), randf_range(0.22, 0.4)), coal_material)
+	# Carteles metálicos en los muros, visibles al recorrer el taller.
+	for sign_at in [Vector3(-7.0, 3.2, -11.94), Vector3(3.8, 3.2, -11.94)]:
+		_add_box("WorkshopSignFrame", sign_at, Vector3(1.8, 1.25, 0.16), brass)
+		_add_box("WorkshopSign", sign_at + Vector3(0.0, 0.0, 0.1), Vector3(1.58, 1.03, 0.08), crate_wood)
+	var barrel_material := _make_surface(Color(0.18, 0.22, 0.21), 0.55, 0.5)
+	for barrel_at in [Vector3(-9.0, 0.0, 1.0), Vector3(9.0, 0.0, 2.0)]:
+		_add_cylinder("WorkshopBarrel", barrel_at + Vector3(0.0, 0.72, 0.0), 0.42, 1.35, barrel_material)
+		_add_cylinder("BarrelRim", barrel_at + Vector3(0.0, 0.42, 0.0), 0.44, 0.08, brass)
+		_add_cylinder("BarrelRim", barrel_at + Vector3(0.0, 1.02, 0.0), 0.44, 0.08, brass)
+	var log_material := _make_surface(Color(0.26, 0.15, 0.075), 0.95)
+	for log_index in range(5):
+		var log := _add_cylinder("SpareFirewood", Vector3(-8.8 + float(log_index % 3) * 0.45, 0.22 + float(log_index / 3) * 0.3, -5.8), 0.16, 1.2, log_material, Vector3(0.0, 0.0, PI / 2.0))
+		log.rotation.y = float(log_index % 2) * 0.12
 
 func _create_facility_visual(kind: String, at: Vector3, base_scale: Vector3, tint: Color, cylinder: bool = false) -> void:
 	var mesh_node := MeshInstance3D.new()
@@ -126,12 +586,49 @@ func _create_facility_visual(kind: String, at: Vector3, base_scale: Vector3, tin
 func _build_hud() -> void:
 	hud_layer = CanvasLayer.new()
 	add_child(hud_layer)
-	var panel := PanelContainer.new()
-	panel.position = Vector2(24.0, 24.0)
-	panel.custom_minimum_size = Vector2(390.0, 660.0)
-	hud_layer.add_child(panel)
+	menu_toggle = Button.new()
+	menu_toggle.text = "☰"
+	menu_toggle.position = Vector2(16, 16)
+	menu_toggle.custom_minimum_size = Vector2(48, 44)
+	menu_toggle.size = Vector2(48, 44)
+	menu_toggle.pressed.connect(_toggle_menu)
+	hud_layer.add_child(menu_toggle)
+	var resource_bar := HBoxContainer.new()
+	resource_bar.position = Vector2(76, 16)
+	resource_bar.size = Vector2(310, 40)
+	resource_bar.add_theme_constant_override("separation", 8)
+	hud_layer.add_child(resource_bar)
+	for badge_ember in [false, true]:
+		var badge := ResourceBadge.new()
+		badge.ember = badge_ember
+		badge.custom_minimum_size = Vector2(34, 34)
+		resource_bar.add_child(badge)
+		var resource_value := Label.new()
+		resource_value.name = "EmberCount" if badge_ember else "SootCount"
+		resource_value.custom_minimum_size = Vector2(110, 34)
+		resource_bar.add_child(resource_value)
+	var map_hint := Label.new()
+	map_hint.text = "WASD: mover  ·  Shift: correr  ·  Ratón: mirar  ·  Esc: liberar cursor  ·  Tab: menú"
+	map_hint.set_anchors_and_offsets_preset(Control.PRESET_TOP_RIGHT)
+	map_hint.position = Vector2(-490.0, 20.0)
+	map_hint.custom_minimum_size = Vector2(470.0, 28.0)
+	map_hint.size = Vector2(470.0, 28.0)
+	map_hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	map_hint.add_theme_color_override("font_color", Color(0.9, 0.79, 0.61))
+	map_hint.add_theme_color_override("font_outline_color", Color(0.05, 0.04, 0.03, 0.95))
+	map_hint.add_theme_constant_override("outline_size", 3)
+	hud_layer.add_child(map_hint)
+	menu_panel = PanelContainer.new()
+	menu_panel.position = Vector2(16.0, 70.0)
+	var panel_width := minf(236.0, get_viewport().get_visible_rect().size.x * 0.2)
+	menu_panel.custom_minimum_size = Vector2(panel_width, 0.0)
+	menu_panel.size = Vector2(panel_width, minf(610.0, get_viewport().get_visible_rect().size.y - 86.0))
+	hud_layer.add_child(menu_panel)
+	menu_panel.add_theme_stylebox_override("panel", _make_skill_panel_style(Color(0.08, 0.07, 0.065, 0.94), Color(0.55, 0.34, 0.16, 0.9)))
+	var panel := menu_panel
 	var scroll := ScrollContainer.new()
-	scroll.custom_minimum_size = Vector2(390.0, 660.0)
+	scroll.custom_minimum_size = Vector2(panel_width - 10.0, 0.0)
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	panel.add_child(scroll)
 	var layout := VBoxContainer.new()
@@ -139,8 +636,8 @@ func _build_hud() -> void:
 	layout.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	scroll.add_child(layout)
 	var title := Label.new()
-	title.text = "HOGUERAS"
-	title.add_theme_font_size_override("font_size", 26)
+	title.text = "HOGUERA"
+	title.add_theme_font_size_override("font_size", 20)
 	layout.add_child(title)
 	soot_label = Label.new()
 	layout.add_child(soot_label)
@@ -237,24 +734,16 @@ func _build_hud() -> void:
 	tier_button = Button.new()
 	tier_button.pressed.connect(_cycle_fire_tier)
 	layout.add_child(tier_button)
-	skin_button = Button.new()
-	skin_button.pressed.connect(_cycle_cosmetic_skin)
-	layout.add_child(skin_button)
 	accessibility_button = Button.new()
 	accessibility_button.pressed.connect(_cycle_accessibility)
 	layout.add_child(accessibility_button)
 	volume_button = Button.new()
 	volume_button.pressed.connect(_cycle_fire_volume)
 	layout.add_child(volume_button)
-	biome_label = Label.new()
-	layout.add_child(biome_label)
-	var biome_buttons := HBoxContainer.new()
-	layout.add_child(biome_buttons)
-	for biome_id in range(2):
-		var biome_button := Button.new()
-		biome_button.text = "Bosque" if biome_id == 0 else "Turbera (5 brasas)"
-		biome_button.pressed.connect(_on_select_biome.bind(biome_id))
-		biome_buttons.add_child(biome_button)
+	options_button = Button.new()
+	options_button.text = "Configuración"
+	options_button.pressed.connect(_open_options_from_game)
+	layout.add_child(options_button)
 	delivery_label = Label.new()
 	layout.add_child(delivery_label)
 	var second_title := Label.new()
@@ -380,11 +869,13 @@ func _on_select_biome(selected: int) -> void:
 		fire_light.light_color = Color(1.0, 0.3, 0.08) if biome_index == 0 else Color(0.28, 0.62, 0.42)
 	var ground := get_node_or_null("Ground") as MeshInstance3D
 	if ground != null:
-		var ground_material := ground.get_surface_override_material(0) as StandardMaterial3D
+		var ground_material := ground.material_override as StandardMaterial3D
 		if ground_material != null:
 			ground_material.albedo_color = Color(0.1, 0.12, 0.11) if biome_index == 0 else Color(0.08, 0.16, 0.12)
-	biome_label.text = "Bioma: Bosque · calor normal" if biome_index == 0 else "Bioma: Turbera · +25% calor"
 	feedback_label.text = "Bioma cambiado."
+	presentation_config.set_value("visual", "biome", biome_index)
+	presentation_config.save("user://presentation.cfg")
+	_update_pregame_selection_label()
 	_refresh_hud()
 
 func _get_unlocked_fire_tier() -> int:
@@ -406,6 +897,7 @@ func _cycle_cosmetic_skin() -> void:
 	selected_skin = (selected_skin + 1) % 3
 	_apply_visual_style(fire.visual_tier, selected_skin)
 	_save_presentation_settings()
+	_update_pregame_selection_label()
 	_refresh_hud()
 
 func _cycle_accessibility() -> void:
@@ -421,11 +913,7 @@ func _cycle_accessibility() -> void:
 	accessibility_button.text = "Accesibilidad: %s%s" % ["texto grande" if large_text else "texto normal", " · alto contraste" if high_contrast else ""]
 
 func _cycle_fire_volume() -> void:
-	fire_volume = 0.0 if fire_volume > 0.3 else (0.2 if fire_volume <= 0.01 else 0.4)
-	fire.set_fire_volume(fire_volume)
-	second_fire.set_fire_volume(fire_volume)
-	volume_button.text = "Volumen del fuego: %d%%" % int(fire_volume * 100.0)
-	_save_presentation_settings()
+	_set_fire_volume(0.0 if fire_volume > 0.3 else (0.2 if fire_volume <= 0.01 else 0.4))
 
 func _apply_visual_style(tier: int, skin: int) -> void:
 	var safe_tier := mini(tier, _get_unlocked_fire_tier())
@@ -438,10 +926,23 @@ func _load_presentation_settings() -> void:
 	large_text = bool(presentation_config.get_value("accessibility", "large_text", false))
 	high_contrast = bool(presentation_config.get_value("accessibility", "high_contrast", false))
 	fire_volume = float(presentation_config.get_value("audio", "volume", 0.35))
+	biome_index = clampi(int(presentation_config.get_value("visual", "biome", 0)), 0, 1)
+	mouse_sensitivity = clampf(float(presentation_config.get_value("controls", "mouse_sensitivity", 0.0025)), 0.001, 0.006)
 	var saved_tier := int(presentation_config.get_value("visual", "tier", 0))
 	_apply_visual_style(saved_tier, selected_skin)
 	fire.set_fire_volume(fire_volume)
 	second_fire.set_fire_volume(fire_volume)
+	if biome_index == 1 and GameManager.get_permanent_points() < 5:
+		biome_index = 0
+	fire.biome_heat_multiplier = 1.0 if biome_index == 0 else 1.25
+	second_fire.biome_heat_multiplier = fire.biome_heat_multiplier
+	if is_instance_valid(fire_light):
+		fire_light.light_color = Color(1.0, 0.3, 0.08) if biome_index == 0 else Color(0.28, 0.62, 0.42)
+	var ground := get_node_or_null("Ground") as MeshInstance3D
+	if is_instance_valid(ground):
+		var ground_material := ground.material_override as StandardMaterial3D
+		if ground_material != null:
+			ground_material.albedo_color = Color(0.1, 0.12, 0.11) if biome_index == 0 else Color(0.08, 0.16, 0.12)
 	_apply_accessibility()
 	accessibility_button.text = "Accesibilidad: %s%s" % ["texto grande" if large_text else "texto normal", " · alto contraste" if high_contrast else ""]
 	volume_button.text = "Volumen del fuego: %d%%" % int(fire_volume * 100.0)
@@ -452,17 +953,22 @@ func _save_presentation_settings() -> void:
 	presentation_config.set_value("accessibility", "large_text", large_text)
 	presentation_config.set_value("accessibility", "high_contrast", high_contrast)
 	presentation_config.set_value("audio", "volume", fire_volume)
+	presentation_config.set_value("visual", "biome", biome_index)
+	presentation_config.set_value("controls", "mouse_sensitivity", mouse_sensitivity)
 	presentation_config.save("user://presentation.cfg")
 
 func _apply_accessibility() -> void:
-	if not is_instance_valid(hud_layer): return
-	for control in _walk_controls(hud_layer):
-		if control is Label or control is Button:
-			control.add_theme_font_size_override("font_size", (18 if large_text else 14) if control != tier_button else 14)
-		if control is Label and high_contrast:
-			control.add_theme_color_override("font_color", Color(1, 1, 0.82))
-		elif control is Label:
-			control.remove_theme_color_override("font_color")
+	var roots: Array[Node] = []
+	if is_instance_valid(hud_layer): roots.append(hud_layer)
+	if is_instance_valid(main_menu_root): roots.append(main_menu_root)
+	for root in roots:
+		for control in _walk_controls(root):
+			if control is Label or control is Button:
+				control.add_theme_font_size_override("font_size", (18 if large_text else 14) if control != tier_button else 14)
+			if control is Label and high_contrast:
+				control.add_theme_color_override("font_color", Color(1, 1, 0.82))
+			elif control is Label:
+				control.remove_theme_color_override("font_color")
 
 func _walk_controls(root: Node) -> Array[Control]:
 	var result: Array[Control] = []
@@ -619,7 +1125,7 @@ func _build_skill_tree_overlay() -> void:
 	title_group.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	header.add_child(title_group)
 	var title := Label.new()
-	title.text = "ARBOL DE MEJORAS"
+	title.text = "ÁRBOL DE BRASAS"
 	title.add_theme_font_size_override("font_size", 26)
 	title.add_theme_color_override("font_color", Color(1.0, 0.67, 0.25))
 	title_group.add_child(title)
@@ -643,12 +1149,36 @@ func _build_skill_tree_overlay() -> void:
 	advanced_tree_label.add_theme_color_override("font_color", Color(1.0, 0.48, 0.2))
 	content.add_child(advanced_tree_label)
 
-	var branches := HBoxContainer.new()
-	branches.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	branches.add_theme_constant_override("separation", 16)
-	content.add_child(branches)
-	_add_skill_branch(branches, "combustion", "RAMA / COMBUSTION", "Llamas mas calientes y combustiones mas largas.", ["thermal_1", "thermal_2", "thermal_advanced"], Color(0.84, 0.31, 0.09))
-	_add_skill_branch(branches, "soot", "RAMA / HOLLIN", "Cada fuego produce mas hollin.", ["soot_1", "soot_2", "soot_advanced"], Color(0.37, 0.32, 0.29))
+	var map := Control.new()
+	map.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	map.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	map.custom_minimum_size = Vector2(620, 400)
+	content.add_child(map)
+	var connections := SkillTreeConnections.new()
+	connections.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	connections.points = [Vector2(0.5, 0.5), Vector2(0.5, 0.17), Vector2(0.25, 0.36), Vector2(0.75, 0.36), Vector2(0.3, 0.75), Vector2(0.7, 0.75)]
+	connections.links = [Vector2i(0, 1), Vector2i(0, 2), Vector2i(0, 3), Vector2i(2, 4), Vector2i(3, 5)]
+	connections.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	connections.resized.connect(connections.queue_redraw)
+	map.add_child(connections)
+	var node_ids: Array[String] = ["thermal_1", "thermal_2", "thermal_advanced", "soot_1", "soot_2", "soot_advanced"]
+	for index in range(node_ids.size()):
+		var node_id := node_ids[index]
+		var button := Button.new()
+		button.custom_minimum_size = Vector2(150, 82)
+		button.anchor_left = connections.points[index].x
+		button.anchor_right = connections.points[index].x
+		button.anchor_top = connections.points[index].y
+		button.anchor_bottom = connections.points[index].y
+		button.offset_left = -75
+		button.offset_right = 75
+		button.offset_top = -41
+		button.offset_bottom = 41
+		button.add_theme_font_size_override("font_size", 15)
+		button.add_theme_color_override("font_color", Color("e7dfd0"))
+		button.pressed.connect(_on_purchase_permanent_node.bind(node_id))
+		map.add_child(button)
+		permanent_buttons[node_id] = button
 	_refresh_skill_tree()
 
 func _add_skill_branch(parent: HBoxContainer, branch_id: String, title_text: String, subtitle_text: String, node_ids: Array[String], accent: Color) -> void:
@@ -722,21 +1252,21 @@ func _refresh_skill_tree() -> void:
 	if not is_instance_valid(skill_tree_overlay):
 		return
 	skill_tree_points_label.text = "BRASAS DISPONIBLES: %d" % GameManager.get_available_embers()
-	advanced_tree_label.text = "RAMA AVANZADA DESBLOQUEADA" if GameManager.has_advanced_tree() else "RAMA AVANZADA BLOQUEADA  /  %s" % GameManager.get_advanced_tree_progress()
+	advanced_tree_label.text = "NODOS PLACEHOLDER · LOS EFECTOS SE DEFINIRÁN MÁS ADELANTE"
 	for node_id in permanent_buttons:
 		var node_data: Dictionary = _get_permanent_node(str(node_id))
 		var node_button: Button = permanent_buttons[node_id]
 		var is_owned := GameManager.owns_permanent_node(str(node_id))
 		var can_buy := GameManager.can_purchase_permanent_node(node_data)
 		var state := _get_skill_node_state(node_data, is_owned, can_buy)
-		node_button.text = "%s   |   %d brasas\n%s\n%s" % [str(node_data.name).to_upper(), int(node_data.cost), str(node_data.effect), state]
+		node_button.text = "✧\n%s\n%d brasas · %s" % [str(node_data.name).to_upper(), int(node_data.cost), state]
 		node_button.disabled = is_owned or not can_buy
 		node_button.tooltip_text = "%s. Coste: %d brasas. %s" % [str(node_data.effect), int(node_data.cost), state]
-		var node_color := Color(0.35, 0.2, 0.11) if is_owned else (Color(0.49, 0.25, 0.1) if can_buy else Color(0.16, 0.13, 0.11))
-		node_button.add_theme_stylebox_override("normal", _make_skill_panel_style(node_color, Color(1.0, 0.55, 0.18) if can_buy else Color(0.35, 0.28, 0.22)))
-		node_button.add_theme_stylebox_override("hover", _make_skill_panel_style(node_color.lightened(0.12), Color(1.0, 0.72, 0.32)))
-		node_button.add_theme_stylebox_override("pressed", _make_skill_panel_style(node_color.darkened(0.15), Color(1.0, 0.48, 0.12)))
-		node_button.add_theme_stylebox_override("disabled", _make_skill_panel_style(node_color.darkened(0.1), Color(0.32, 0.27, 0.22)))
+		var node_color := Color("625b4e") if is_owned else (Color("514b41") if can_buy else Color("343638"))
+		node_button.add_theme_stylebox_override("normal", _make_skill_panel_style(node_color, Color("d49a4b") if can_buy else Color("888276")))
+		node_button.add_theme_stylebox_override("hover", _make_skill_panel_style(node_color.lightened(0.12), Color("f1c36e")))
+		node_button.add_theme_stylebox_override("pressed", _make_skill_panel_style(node_color.darkened(0.15), Color("d88939")))
+		node_button.add_theme_stylebox_override("disabled", _make_skill_panel_style(node_color.darkened(0.1), Color("716c62")))
 
 func _get_skill_node_state(node: Dictionary, is_owned: bool, can_buy: bool) -> String:
 	if is_owned:
@@ -751,7 +1281,7 @@ func _get_skill_node_state(node: Dictionary, is_owned: bool, can_buy: bool) -> S
 	return "LISTO PARA ENCENDER"
 
 func _make_skill_frame_style() -> StyleBoxFlat:
-	return _make_skill_panel_style(Color(0.09, 0.065, 0.047, 0.98), Color(0.66, 0.29, 0.11))
+	return _make_skill_panel_style(Color("292b2c"), Color("7e786c"))
 
 func _make_skill_panel_style(background: Color, border: Color) -> StyleBoxFlat:
 	var style := StyleBoxFlat.new()
@@ -786,10 +1316,13 @@ func _refresh_hud() -> void:
 	presentation_label.text = "Tier %s | desbloqueado hasta %s (%d brasas)\nLas tiers cambian el aspecto. Skin: %s (sin bonus)." % [tier_names[fire.visual_tier], tier_names[unlocked_tier], GameManager.get_permanent_points(), ["Natural", "Ambar", "Azul palido"][selected_skin]]
 	tier_button.text = "Cambiar tier: %s" % tier_names[fire.visual_tier]
 	tier_button.disabled = unlocked_tier == 0
-	skin_button.text = "Cambiar skin (%s)" % ["Natural", "Ambar", "Azul palido"][selected_skin]
 	accessibility_button.text = "Accesibilidad: %s%s" % ["texto grande" if large_text else "texto normal", " | alto contraste" if high_contrast else ""]
 	volume_button.text = "Volumen del fuego: %d%%" % int(fire_volume * 100.0)
 	soot_label.text = "Hollín disponible: %.1f | Ceniza de la jornada: %.1f" % [GameManager.get_soot(), GameManager.get_daily_ash()]
+	var soot_count := hud_layer.find_child("SootCount", true, false) as Label
+	var ember_count := hud_layer.find_child("EmberCount", true, false) as Label
+	if is_instance_valid(soot_count): soot_count.text = "%s hollín" % _format_resource_count(GameManager.get_soot())
+	if is_instance_valid(ember_count): ember_count.text = "%d brasas" % GameManager.get_permanent_points()
 	stats_label.text = "Temperatura: %.1f °C (x%.2f) | Multiplicador: %.2fx\nBrasas ganadas: %d | Disponibles: %d" % [fire.current_heat, GameManager.get_thermal_multiplier(), GameManager.get_global_multiplier(), GameManager.get_permanent_points(), GameManager.get_available_embers()]
 	var second_stock_parts := PackedStringArray()
 	for fuel_data in FuelCatalog.get_all():
@@ -834,7 +1367,6 @@ func _refresh_hud() -> void:
 		var previous_tech := "gas" if id == "tritium" else "tritium" if id == "laser" else ""
 		button.disabled = (not GameManager.get_tech_unlocked(id) and (not bool(GameManager.run_progress.claimed_temperature_milestones.get(str(threshold), false)) or GameManager.get_available_embers() < 1 or (not previous_tech.is_empty() and not GameManager.get_tech_unlocked(previous_tech)))) or (GameManager.get_tech_unlocked(id) and (not fire.burning or GameManager.get_soot() < (50.0 if id == "laser" else 25.0)))
 	rest_button.disabled = GameManager.get_day_elapsed() < 120.0
-	biome_label.text = "Bioma: Bosque | calor normal" if biome_index == 0 else "Bioma: Turbera | +25% calor"
 	var live_rate := 0.0
 	var stations: Array[FireManager] = [fire, second_fire]
 	for station in stations:
@@ -891,6 +1423,9 @@ func _refresh_hud() -> void:
 		_refresh_skill_tree()
 func _request_hud_refresh() -> void:
 	hud_refresh_pending = true
+
+func _format_resource_count(value: float) -> String:
+	return "%.0f" % value if value >= 100.0 else "%.1f" % value
 
 func _update_guidance_and_tooltips(stock: Dictionary) -> void:
 	if fire.burning:

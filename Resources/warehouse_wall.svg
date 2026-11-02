@@ -1,0 +1,73 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900">
+<defs>
+  <linearGradient id="wall" x2="0" y2="1"><stop stop-color="#292b2b"/><stop offset=".58" stop-color="#51443a"/><stop offset="1" stop-color="#282622"/></linearGradient>
+  <linearGradient id="window" x2="0" y2="1"><stop stop-color="#e9bd79"/><stop offset=".65" stop-color="#77614b"/><stop offset="1" stop-color="#332d29"/></linearGradient>
+  <linearGradient id="steel" x2="0" y2="1"><stop stop-color="#77736b"/><stop offset=".5" stop-color="#363b3b"/><stop offset="1" stop-color="#171d1e"/></linearGradient>
+  <linearGradient id="lamp" x2="0" y2="1"><stop stop-color="#ffe6a3"/><stop offset="1" stop-color="#d9873b"/></linearGradient>
+  <pattern id="grain" width="47" height="31" patternUnits="userSpaceOnUse"><path d="M0 8h47M0 26h47" stroke="#c08c55" stroke-opacity=".13"/><path d="M9 0v7m24 2v15m-12 5v4" stroke="#151413" stroke-opacity=".3"/></pattern>
+  <filter id="glow"><feGaussianBlur stdDeviation="12" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+</defs>
+<rect width="1600" height="900" fill="url(#wall)"/>
+<path d="M0 610L800 400l800 210v290H0z" fill="#252321" opacity=".55"/>
+<rect width="1600" height="900" fill="url(#grain)" opacity=".7"/>
+<!-- steel mill windows -->
+<g stroke="#191c1d" stroke-width="22" fill="url(#window)">
+ <path d="M160 170h340v190H160zM600 120h400v230H600zM1100 165h330v195h-330z"/>
+</g>
+<g stroke="#252523" stroke-width="12" opacity=".95">
+ <path d="M273 170v190m113-190v190M160 264h340M733 120v230m134-230v230M600 235h400M1210 165v195m110-195v195M1100 265h330"/>
+</g>
+<g fill="#ffe3ac" opacity=".2">
+ <path d="M170 180h320v70H170zM610 130h380v70H610zM1110 175h310v65h-310z"/>
+</g>
+<!-- painted iron uprights and roof trusses -->
+<g fill="none" stroke="url(#steel)" stroke-linecap="square">
+ <path stroke-width="38" d="M45 0v900M330 0v415M800 0v385M1270 0v420M1550 0v900"/>
+ <path stroke-width="28" d="M0 80h1600M0 420h1600M0 620h1600"/>
+ <path stroke="#17191a" stroke-width="9" d="M60 0l270 80 470-80 470 80 280-80M330 80v340m470-340v305m470-305v340M0 620l330-200 470 0 470 0 330 200"/>
+ <path stroke="#8f775d" stroke-width="5" opacity=".55" d="M70 86h1460M350 424h900M70 626h1460"/>
+</g>
+<!-- catwalks -->
+<g fill="#232626" stroke="#9a8060" stroke-width="9">
+ <path d="M85 390h500v24H85zM1010 390h505v24h-505zM90 393v90m490-90v90m430-90v90m495-90v90"/>
+ <path d="M60 485h550m400 0h540" fill="none" stroke-width="12"/>
+</g>
+<g stroke="#76634d" stroke-width="5" fill="none" opacity=".8">
+ <path d="M100 415v65m35-65v65m35-65v65m35-65v65m35-65v65m35-65v65m35-65v65m35-65v65m35-65v65m35-65v65m35-65v65m35-65v65m35-65v65m35-65v65m35-65v65m35-65v65"/>
+ <path d="M1040 415v65m35-65v65m35-65v65m35-65v65m35-65v65m35-65v65m35-65v65m35-65v65m35-65v65m35-65v65m35-65v65m35-65v65m35-65v65"/>
+</g>
+<!-- warm hanging work lights -->
+<g stroke="#1c1b19" stroke-width="8" fill="url(#lamp)" filter="url(#glow)" opacity=".92">
+ <path d="M120 82v63m-31 0h62l-12 26h-38zM465 83v53m-31 0h62l-12 24h-38zM800 78v57m-34 0h68l-13 26h-42zM1135 83v53m-31 0h62l-12 24h-38zM1480 82v63m-31 0h62l-12 26h-38z"/>
+</g>
+<!-- framed foundry sketches -->
+<g stroke="#171615" stroke-width="20">
+ <path fill="#713e28" d="M190 500h150v185H190zM1280 485h150v190h-150zM710 465h180v145H710z"/>
+</g>
+<g fill="none" stroke="#d4a46c" stroke-width="8" opacity=".8">
+ <path d="M215 530h100v125H215zM1305 515h100v130h-100zM735 490h130v95H735z"/>
+ <path d="M265 540l-30 50 30 42 28-50zM1355 525l-30 53 30 45 30-49zM750 560l50-52 50 52-50 12z"/>
+</g>
+<!-- old pipes, cables and wall stains -->
+<g fill="none" stroke-linecap="round">
+ <path d="M0 520c85-30 120 54 200 5s120-38 170 10m930-6c68-64 125 12 190-18s80-5 110 8" stroke="#171a1a" stroke-width="13"/>
+ <path d="M0 542c95-23 131 45 205 0m950 12c85-55 135 16 210-12s90-8 130 8" stroke="#876e53" stroke-width="5"/>
+ <path d="M75 720l35-24 8 50-24 20zm1430-66l-36 28 12 54 32 14zM580 500l15 80m405-70-13 96" stroke="#151615" stroke-width="15" opacity=".55"/>
+</g>
+<!-- broad-leaf plants tucked along the wall -->
+<g stroke="#18221b" stroke-width="8" stroke-linejoin="round">
+ <path d="M170 790h105l-14 83h-77z" fill="#64462f"/><path d="M218 790v-154m0 90c-72-12-88-70-102-104 54 5 99 36 102 104m1-20c43-56 86-61 124-57-29 52-65 77-124 83m-2-47c-43-61-34-106-19-142 39 39 55 80 33 142" fill="none" stroke="#65734a" stroke-width="19"/>
+ <path d="M1325 790h105l-14 83h-77z" fill="#64462f"/><path d="M1373 790V636m0 90c-72-12-88-70-102-104 54 5 99 36 102 104m1-20c43-56 86-61 124-57-29 52-65 77-124 83m-2-47c-43-61-34-106-19-142 39 39 55 80 33 142" fill="none" stroke="#65734a" stroke-width="19"/>
+</g>
+<!-- worn leather seating -->
+<g stroke="#211a15" stroke-width="16" stroke-linejoin="round">
+ <path d="M455 700q0-42 40-48l142-2q40 6 40 48v82H455z" fill="#995b35"/><path d="M470 653q5-56 48-60h116q34 8 39 60" fill="#b87a4c"/><path d="M474 781l-8 69m194-69 10 69" fill="none" stroke="#32261b" stroke-width="14"/>
+ <path d="M925 700q0-42 40-48l142-2q40 6 40 48v82H925z" fill="#916746"/><path d="M940 653q5-56 48-60h116q34 8 39 60" fill="#b2875c"/><path d="M944 781l-8 69m194-69 10 69" fill="none" stroke="#32261b" stroke-width="14"/>
+</g>
+<g fill="none" stroke="#e2b887" stroke-width="6" opacity=".55"><path d="M480 701h174m-174 25h174m-174 25h174m470-50h174m-174 25h174m-174 25h174"/></g>
+<!-- riveted columns -->
+<g fill="#c1a47d" opacity=".6">
+ <circle cx="45" cy="120" r="8"/><circle cx="45" cy="310" r="8"/><circle cx="45" cy="510" r="8"/><circle cx="45" cy="710" r="8"/><circle cx="1550" cy="120" r="8"/><circle cx="1550" cy="310" r="8"/><circle cx="1550" cy="510" r="8"/><circle cx="1550" cy="710" r="8"/>
+</g>
+<rect x="10" y="10" width="1580" height="880" fill="none" stroke="#171717" stroke-width="20" opacity=".7"/>
+</svg>
