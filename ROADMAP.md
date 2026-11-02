@@ -16,7 +16,7 @@ Documento vivo para definir el diseño futuro del juego. Las ideas aquí reunida
 
 **Fantasía central:** Ramiro, fascinado desde niño por el Sol, compra una nave industrial en las afueras y se propone alcanzar con su hoguera la temperatura de nuestra estrella.
 
-**Dirección visual:** estética toon. La escena de referencia muestra una nave industrial amplia, una hoguera central rodeada de piedras, vías curvas que transportan combustible y medidores destacados de temperatura y recursos. La imagen fija la composición de referencia; la adaptación del prototipo queda para una etapa futura.
+**Dirección visual:** nave industrial estilizada, carbón y ámbar, con una hoguera central rodeada de piedras, vías y materiales legibles. La escena actual conserva el tono industrial y prioriza la hoguera; el HUD usa la paleta de terminal de fundición.
 
 **Espacios principales:**
 
@@ -32,9 +32,9 @@ Documento vivo para definir el diseño futuro del juego. Las ideas aquí reunida
 #### IDEA-001 — Jornada de trabajo y descanso
 
 - **Fantasía:** gestionar una jornada junto a la hoguera y decidir cuándo parar para dormir.
-- **Regla seleccionada:** la jornada dura 12 minutos reales. Comprar, cargar combustible y avivar no adelanta el reloj. Se puede descansar después de 2 minutos; descansar liquida la ceniza y comienza el día siguiente.
-- **Si no se descansa:** al acabar los 12 minutos, el día se cierra automáticamente y continúa el siguiente, sin bonificación de descanso.
-- **Persistencia diaria:** el dinero, las mejoras y el combustible sobrante se conservan; la ceniza se vende al cierre.
+- **Regla seleccionada:** la jornada dura 4 minutos activos. Comprar, cargar combustible y avivar no adelanta el reloj. Se puede descansar después de 2 minutos; descansar liquida toda la ceniza y comienza el día siguiente. El tiempo se congela al cerrar el juego.
+- **Si no se descansa:** al acabar los 4 minutos activos, el día se cierra automáticamente y continúa el siguiente, sin bonificación de descanso.
+- **Persistencia diaria:** el dinero, las mejoras, la pila de fuego y el combustible sobrante se conservan; la ceniza se vende al cierre.
 - **Estado:** Seleccionada para la primera entrega alineada.
 
 #### IDEA-002 — Hitos de temperatura solar
@@ -46,7 +46,7 @@ Documento vivo para definir el diseño futuro del juego. Las ideas aquí reunida
 #### IDEA-003 — Crecimiento de la nave y de la operación
 
 - **Fantasía:** convertir una nave vacía en una instalación dedicada a una hoguera cada vez mayor.
-- **Regla seleccionada para una etapa posterior:** las mejoras pagadas con hollín amplían el almacén, el silo de ceniza y el taller. La jornada se mantiene fija en 12 minutos.
+- **Regla seleccionada para una etapa posterior:** las mejoras pagadas con hollín amplían el almacén, el silo de ceniza y el taller. La jornada se mantiene fija en 4 minutos activos.
 - **Estado:** Seleccionada para Sprint 12, después de la primera entrega alineada.
 
 ### Combustibles y economía
@@ -80,7 +80,7 @@ Documento vivo para definir el diseño futuro del juego. Las ideas aquí reunida
 #### IDEA-008 — Calor peligroso y hora de dormir
 
 - **Fantasía:** empujar la jornada más allá de lo prudente y arriesgarse a las consecuencias.
-- **Regla seleccionada:** el calor no daña a Ramiro en la primera entrega. No dormir a tiempo cierra automáticamente el día al terminar los 12 minutos, sin bonificación de descanso; el progreso y los recursos se conservan.
+- **Regla seleccionada:** el calor no daña a Ramiro en la primera entrega. No dormir a tiempo cierra automáticamente el día al terminar los 4 minutos activos, sin bonificación de descanso; el progreso y los recursos se conservan.
 - **Estado:** Seleccionada para la primera entrega alineada, con riesgo físico aplazado.
 
 ### Automatización y mundo
@@ -113,7 +113,7 @@ Documento vivo para definir el diseño futuro del juego. Las ideas aquí reunida
 
 ### Reglas de instalaciones y contenido tardío (Sprints 12–13)
 
-- La jornada conserva su duración fija de 12 minutos. Las ampliaciones se pagan con hollín: el almacén parte con capacidad total de 20 unidades y cada mejora añade 5, hasta tres mejoras; el silo parte con capacidad de 300 unidades de ceniza y cada mejora añade 150, hasta tres mejoras. Cada mejora cuesta 50 de hollín, con coste ×1,5 por nivel.
+- La jornada conserva su duración fija de 4 minutos activos. Las ampliaciones se pagan con hollín: el almacén parte con capacidad total de 20 unidades y cada mejora añade 5, hasta tres mejoras; el silo parte con capacidad de 300 unidades de ceniza y cada mejora añade 150, hasta tres mejoras. Cada mejora cuesta 50 de hollín, con coste ×1,5 por nivel.
 - El hollín pendiente de liquidación se representa como ceniza. La ceniza depositada en el silo se vende al cierre a razón de 1 hollín por unidad. La ceniza aún sin recoger y cualquier excedente que no quepa en el silo pierden su valor al cerrar el día.
 - Las mejoras del taller automatizan viajes de vagoneta; las mejoras del garaje amplían las cargas y reducen la espera de los camiones. Los pedidos pendientes y el estado de instalaciones deberán persistir en el guardado.
 - Estas reglas son contenido posterior a la primera entrega: no activan prestigio, reinicio de campaña ni daño físico por calor. La explosión solo termina la jornada y hace perder la ceniza no depositada.
@@ -127,7 +127,7 @@ El prestigio pagado y el reinicio por saturación quedan aplazados y no forman p
 
 ### Alcance de la primera entrega alineada
 
-Incluye una hoguera en una nave, jornadas de 12 minutos, descanso desde el minuto 2, liquidación diaria de ceniza, asignación diaria de combustible con excedente acumulable, combustibles básicos, mejoras pagadas con hollín e hitos de 100/500/1.000 °C que otorgan brasas. No incluye daño por calor, límite/recogida de ceniza, puntos de llama, prestigio, biomas, segunda hoguera, vagonetas, camiones, explosiones ni tecnología experimental. Los sistemas aplazados seleccionados se implementarán en etapas posteriores según el backlog.
+Incluye una hoguera en una nave, jornadas de 4 minutos activos, descanso desde el minuto 2, tiempo congelado al cerrar el juego, liquidación diaria de toda la ceniza, asignación diaria de combustible con excedente acumulable, combustibles básicos, mejoras pagadas con hollín e hitos de 100/500/1.000 °C que otorgan brasas. No incluye daño por calor, límite/recogida de ceniza, puntos de llama, prestigio, biomas, segunda hoguera, vagonetas, camiones, explosiones ni tecnología experimental. Los sistemas aplazados seleccionados se implementarán en etapas posteriores según el backlog.
 
 ## Decisiones abiertas
 
@@ -156,5 +156,6 @@ El prototipo jugable existente conserva su función de validar mecánicas. Sus s
 - **2026-11-02:** la temperatura del Sol queda como aspiración a largo plazo; las reglas de jornadas, economía y reinicio de la primera entrega se concretan en Sprint 9.
 - **2026-11-02:** Sprint 9 selecciona la jornada de 12 minutos, descanso desde el minuto 2, cierre automático sin bonificación, hitos de 100/500/1.000 °C con una brasa cada uno, liquidación de ceniza por hollín y asignación diaria de combustible acumulable. La primera entrega alineada excluye prestigio, peligro físico, límite de ceniza y sistemas tardíos.
 - **2026-11-02:** se seleccionan para etapas posteriores IDEA-003/007/009/010/011/012: mejoras de instalaciones, ceniza limitada con vagonetas, camiones, combustión crítica de carbón y combustible líquido, y tecnología experimental desbloqueada por hitos y brasas.
+- **2026-11-03:** se actualiza la primera entrega a jornadas de 4 minutos activos; el descanso queda disponible desde el minuto 2 y cerrar el juego congela la jornada. Se elige una dirección industrial estilizada. Estas decisiones sustituyen la duración de 12 minutos y la dirección toon anotadas el 2026-11-02.
 
 - **2026-11-02:** Sprints 10 y 11 implementan en serie la jornada, los hitos, la liquidación diaria y la progresión de combustibles básicos descrita en este documento.

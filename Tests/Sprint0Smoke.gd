@@ -235,7 +235,8 @@ func _validate_sprints_3_to_5(main: Node, primary_fire: FireManager, automation_
 		migration_file.set_value("progress", "embers", 7)
 		migration_file.save("user://hogueras_save.cfg")
 		GameManager._load_progress()
-		_check(GameManager.get_permanent_points() == 7 and GameManager.get_available_embers() == 7, "La migración versión 1 recupera las brasas como saldo disponible.")
+		_check(GameManager.get_permanent_points() == 0 and GameManager.get_available_embers() == 0, "La migración a la campaña alineada inicia progreso nuevo.")
+		_check(FileAccess.file_exists(RunProgressManager.SAVE_PATH + ".legacy.bak"), "La migración conserva una copia de seguridad del guardado anterior.")
 		var migrated_nodes_empty := true
 		for node in GameManager.get_permanent_nodes():
 			migrated_nodes_empty = migrated_nodes_empty and not GameManager.owns_permanent_node(str(node.id))
@@ -249,6 +250,7 @@ func _validate_sprints_3_to_5(main: Node, primary_fire: FireManager, automation_
 	second_fire.set_process(false)
 	primary_fire.set_process(false)
 	GameManager.begin_new_run()
+	GameManager.run_progress.day_number = 3
 	second_fire.private_stock = second_fire.build_starting_stock()
 	var global_wood := GameManager.get_fuel_count("leña")
 	_check(second_fire.add_fuel("hojarasca"), "La segunda hoguera carga combustible desde su almacén propio.")
@@ -264,7 +266,7 @@ func _validate_sprints_3_to_5(main: Node, primary_fire: FireManager, automation_
 	var rate_label := main.get("rate_label") as Label
 	var primary_rate := GameManager.get_soot_rate(primary_fire.current_heat) * primary_fire.local_production_multiplier
 	var shown_total_rate := rate_label.text.get_slice(": ", 1).get_slice(" ", 0).to_float()
-	_check(shown_total_rate > primary_rate, "El ritmo global del HUD suma la producción activa de ambas hogueras.")
+	_check(is_equal_approx(shown_total_rate, snappedf(primary_rate, 0.1)), "El HUD muestra solo la tasa de ceniza de la hoguera activa.")
 	GameManager.add_soot(60.0)
 	main.call("_on_upgrade_second")
 	_check(second_fire.local_upgrade_level == 1 and is_equal_approx(second_fire.local_production_multiplier, 1.25), "La mejora de producción de la segunda hoguera se compra y aplica localmente.")
@@ -278,11 +280,9 @@ func _validate_sprints_3_to_5(main: Node, primary_fire: FireManager, automation_
 	second_fire.add_delivery("turba", 1)
 	_check(second_fire.get_station_fuel_count("turba") == InventoryManager.MAX_STOCK_PER_FUEL, "Las entregas respetan la capacidad máxima del almacén.")
 	main.call("_on_select_biome", 1)
-	_check(is_equal_approx(primary_fire.biome_heat_multiplier, 1.25) and is_equal_approx(second_fire.biome_heat_multiplier, 1.25), "La turbera desbloqueada aplica su regla térmica a las dos hogueras.")
-	main.call("_on_select_biome", 0)
-	_check(is_equal_approx(primary_fire.biome_heat_multiplier, 1.0), "El bioma Bosque restaura el calor base.")
+	_check(is_equal_approx(primary_fire.biome_heat_multiplier, 1.0) and is_equal_approx(second_fire.biome_heat_multiplier, 1.0), "La primera entrega conserva un único entorno térmico.")
 	var delivery_label := main.get("delivery_label") as Label
-	_check(delivery_label != null and delivery_label.text.to_lower().contains("siguiente"), "El HUD informa del temporizador de la siguiente entrega.")
+	_check(delivery_label != null and delivery_label.text.to_lower().contains("jornada"), "El HUD informa del temporizador de la jornada.")
 
 	# Sprint 5: per-station automation, priority, offline cap and one-time claims.
 	automation_fire.clear_for_new_run()
@@ -317,20 +317,20 @@ func _validate_sprints_3_to_5(main: Node, primary_fire: FireManager, automation_
 	var automation_settings: Dictionary = main.call("_get_fire_automation_settings", automation_fire)
 	var restored_automation := FireManager.new()
 	main.call("_apply_fire_automation_settings", restored_automation, automation_settings)
-	_check(restored_automation.automation_unlocked and not restored_automation.automation_active and restored_automation.fuel_priority[0] == "leña", "Los ajustes de desbloqueo, pausa y prioridad se restauran al iniciar.")
+	_check(not restored_automation.automation_unlocked and not restored_automation.automation_active, "La automatización empieza deshabilitada en la campaña de Early Access.")
 	restored_automation.free()
 	GameManager.add_soot(40.0)
 	main.call("_on_automation_toggle", second_fire, 160.0)
 	_check(second_fire.automation_unlocked and second_fire.automation_active and not automation_fire.automation_active, "La segunda instalación se desbloquea por separado con su coste de 160.")
 	main.call("_on_automation_toggle", second_fire, 160.0)
 	second_fire.cycle_fuel_priority()
-	main.call("_save_offline_progress")
+	main.call("_save_session_progress")
 	second_fire.automation_unlocked = false
 	second_fire.automation_active = false
 	second_fire.fuel_priority = ["hojarasca", "leña", "tronco", "turba"]
 	GameManager.run_progress.load_progress()
 	main.call("_restore_automation_settings")
-	_check(second_fire.automation_unlocked and not second_fire.automation_active and second_fire.fuel_priority[0] == "leña", "Los ajustes de automatización se guardan al cerrar y se restauran en una carga nueva.")
+	_check(not second_fire.automation_unlocked and not second_fire.automation_active, "La automatización queda deshabilitada tras cargar una sesión.")
 	var progress_probe := RunProgressManager.new()
 	progress_probe.offline_saved_at = int(Time.get_unix_time_from_system()) - int(RunProgressManager.OFFLINE_CAP_SECONDS + 3600.0)
 	progress_probe.offline_fuel_seconds = RunProgressManager.OFFLINE_CAP_SECONDS + 3600.0

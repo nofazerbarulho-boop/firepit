@@ -3,11 +3,11 @@ class_name InventoryManager
 
 signal changed
 
-const STARTING_STOCK := {"hojarasca": 4, "leña": 4, "tronco": 3, "turba": 2}
+const STARTING_STOCK := {"hojarasca": 4, "leña": 18, "tronco": 3, "turba": 2}
 const MAX_STOCK_PER_FUEL := 99
 
 var _stock: Dictionary = {}
-var capacity: int = 20
+var capacity: int = MAX_STOCK_PER_FUEL * 4
 
 func _ready() -> void:
 	reset_to_starting_stock()

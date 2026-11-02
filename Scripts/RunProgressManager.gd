@@ -6,7 +6,9 @@ signal changed
 const PRESTIGE_THRESHOLD := 100.0
 const EMBER_RESERVE_CAP := 12.0
 const SAVE_PATH := "user://hogueras_save.cfg"
-const SAVE_VERSION := 5
+const SAVE_VERSION := 6
+const WORKDAY_DURATION_SECONDS := 240.0
+const REST_UNLOCK_SECONDS := 120.0
 const ADVANCED_TREE_THRESHOLD := 5
 const OFFLINE_CAP_SECONDS := 8.0 * 60.0 * 60.0
 
@@ -24,6 +26,7 @@ var automation_settings: Dictionary = {}
 var day_number: int = 1
 var day_elapsed: float = 0.0
 var daily_ash: float = 0.0
+var daily_fire_state: Dictionary = {}
 var claimed_temperature_milestones: Dictionary = {}
 var saved_fuel_stock: Dictionary = {}
 var saved_temporary_upgrades: int = 0
@@ -34,49 +37,33 @@ var truck_seconds_left: float = 0.0
 var truck_pending: bool = false
 var truck_cargo: Dictionary = {}
 var experimental_unlocked: Dictionary = {}
+var persistence_enabled: bool = true
 
 func load_progress() -> void:
-	day_number = 1
-	day_elapsed = 0.0
-	daily_ash = 0.0
-	claimed_temperature_milestones.clear()
-	saved_fuel_stock.clear()
-	saved_temporary_upgrades = 0
-	silo_ash = 0.0
-	uncollected_ash = 0.0
-	facility_levels = {"warehouse": 0, "silo": 0, "workshop": 0, "garage": 0}
-	truck_seconds_left = 0.0
-	truck_pending = false
-	truck_cargo.clear()
-	experimental_unlocked.clear()
+	_reset_campaign_state()
 	var save_file := ConfigFile.new()
 	var load_error := save_file.load(SAVE_PATH)
 	if load_error != OK:
 		# Missing or corrupt saves start cleanly; never leave a partial state behind.
-		permanent_points = 0
-		soot_earned = 0.0
-		current_soot = 0.0
-		available_embers = 0
-		next_run_ember_reserve = 0.0
-		purchased_nodes.clear()
-		offline_saved_at = 0
-		offline_fuel_seconds = 0.0
-		offline_soot_per_second = 0.0
-		automation_settings.clear()
-		day_number = 1
-		day_elapsed = 0.0
-		daily_ash = 0.0
-		claimed_temperature_milestones.clear()
-		saved_fuel_stock.clear()
-		saved_temporary_upgrades = 0
+		if FileAccess.file_exists(SAVE_PATH):
+			_backup_legacy_save()
+		save_progress()
 		changed.emit()
 		return
 	var saved_version := maxi(1, _safe_int(save_file.get_value("progress", "version", 1)))
+	if saved_version < SAVE_VERSION:
+		_backup_legacy_save()
+		_reset_campaign_state()
+		save_progress()
+		changed.emit()
+		return
 	var saved_automation: Variant = save_file.get_value("run", "automation", {})
 	automation_settings = saved_automation.duplicate(true) if saved_automation is Dictionary else {}
 	day_number = maxi(1, _safe_int(save_file.get_value("daily", "day_number", 1)))
-	day_elapsed = clampf(_safe_float(save_file.get_value("daily", "elapsed", 0.0)), 0.0, 720.0)
+	day_elapsed = clampf(_safe_float(save_file.get_value("daily", "elapsed", 0.0)), 0.0, WORKDAY_DURATION_SECONDS)
 	daily_ash = maxf(0.0, _safe_float(save_file.get_value("daily", "ash", 0.0)))
+	var saved_fire_state: Variant = save_file.get_value("daily", "fire_state", {})
+	daily_fire_state = saved_fire_state.duplicate(true) if saved_fire_state is Dictionary else {}
 	var saved_milestones: Variant = save_file.get_value("daily", "milestones", {})
 	claimed_temperature_milestones = saved_milestones.duplicate(true) if saved_milestones is Dictionary else {}
 	var stock_value: Variant = save_file.get_value("daily", "fuel_stock", {})
@@ -111,7 +98,47 @@ func load_progress() -> void:
 				purchased_nodes[node_id] = true
 	changed.emit()
 
+func _reset_campaign_state() -> void:
+	soot_earned = 0.0
+	current_soot = 0.0
+	permanent_points = 0
+	ember_reserve = 0.0
+	next_run_ember_reserve = 0.0
+	available_embers = 0
+	purchased_nodes.clear()
+	offline_saved_at = 0
+	offline_fuel_seconds = 0.0
+	offline_soot_per_second = 0.0
+	automation_settings.clear()
+	day_number = 1
+	day_elapsed = 0.0
+	daily_ash = 0.0
+	daily_fire_state.clear()
+	claimed_temperature_milestones.clear()
+	saved_fuel_stock.clear()
+	saved_temporary_upgrades = 0
+	silo_ash = 0.0
+	uncollected_ash = 0.0
+	facility_levels = {"warehouse": 0, "silo": 0, "workshop": 0, "garage": 0}
+	truck_seconds_left = 0.0
+	truck_pending = false
+	truck_cargo.clear()
+	experimental_unlocked.clear()
+
+func _backup_legacy_save() -> void:
+	if not FileAccess.file_exists(SAVE_PATH):
+		return
+	var source := ProjectSettings.globalize_path(SAVE_PATH)
+	var backup := ProjectSettings.globalize_path(SAVE_PATH + ".legacy.bak")
+	if FileAccess.file_exists(SAVE_PATH + ".legacy.bak"):
+		return
+	var error := DirAccess.copy_absolute(source, backup)
+	if error != OK:
+		push_warning("No se pudo respaldar el guardado del prototipo (código %d)." % error)
+
 func save_progress() -> void:
+	if not persistence_enabled:
+		return
 	var save_file := ConfigFile.new()
 	save_file.set_value("progress", "embers", permanent_points)
 	save_file.set_value("progress", "available_embers", available_embers)
@@ -127,6 +154,7 @@ func save_progress() -> void:
 	save_file.set_value("daily", "day_number", day_number)
 	save_file.set_value("daily", "elapsed", day_elapsed)
 	save_file.set_value("daily", "ash", daily_ash)
+	save_file.set_value("daily", "fire_state", daily_fire_state.duplicate(true))
 	save_file.set_value("daily", "milestones", claimed_temperature_milestones.duplicate(true))
 	save_file.set_value("daily", "fuel_stock", saved_fuel_stock.duplicate(true))
 	save_file.set_value("daily", "temporary_upgrades", saved_temporary_upgrades)
@@ -174,8 +202,12 @@ func record_soot(amount: float) -> void:
 	uncollected_ash += amount
 	changed.emit()
 
-func close_workday() -> float:
-	var soot_sale := silo_ash
+func close_workday(manual: bool = false) -> float:
+	if manual and day_elapsed < REST_UNLOCK_SECONDS:
+		return -1.0
+	if not manual and day_elapsed < WORKDAY_DURATION_SECONDS:
+		return -1.0
+	var soot_sale := daily_ash
 	silo_ash = 0.0
 	uncollected_ash = 0.0
 	daily_ash = 0.0
@@ -193,8 +225,8 @@ func get_facility_capacity(kind: String) -> int:
 func advance_workday(seconds: float) -> bool:
 	if seconds <= 0.0:
 		return false
-	day_elapsed = minf(720.0, day_elapsed + seconds)
-	return day_elapsed >= 720.0
+	day_elapsed = minf(WORKDAY_DURATION_SECONDS, day_elapsed + seconds)
+	return day_elapsed >= WORKDAY_DURATION_SECONDS
 
 func claim_temperature_milestone(temperature: float) -> int:
 	var awarded := 0

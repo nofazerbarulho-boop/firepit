@@ -19,7 +19,7 @@ func buy_fuel(fuel_id: String) -> bool:
 	var data: FuelData = FuelCatalog.get_by_id(fuel_id)
 	if data == null:
 		return false
-	if not GameManager.can_store_fuel():
+	if not GameManager.can_store_fuel_type(fuel_id):
 		return false
 	var price := get_price(fuel_id)
 	if not GameManager.spend_soot(price):

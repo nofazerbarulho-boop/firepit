@@ -7,6 +7,8 @@ const EconomyModule = preload("res://Scripts/EconomyManager.gd")
 const InventoryModule = preload("res://Scripts/InventoryManager.gd")
 const RunProgressModule = preload("res://Scripts/RunProgressManager.gd")
 const PRESTIGE_THRESHOLD := 100.0
+const WORKDAY_DURATION_SECONDS := 240.0
+const REST_UNLOCK_SECONDS := 120.0
 const SOOT_OUTPUT_SCALE := 0.015
 const EMBER_RESERVE_CAP := 12.0
 
@@ -50,7 +52,8 @@ func _ready() -> void:
 	economy.soot = run_progress.current_soot
 	economy.temporary_upgrades = run_progress.saved_temporary_upgrades
 	inventory.load_stock(run_progress.saved_fuel_stock)
-	inventory.set_capacity(run_progress.get_facility_capacity("warehouse"))
+	# The first-release supply loop has no warehouse cap; preserve daily surplus.
+	inventory.set_capacity(InventoryModule.MAX_STOCK_PER_FUEL * 4)
 	var has_saved_daily_stock: bool = not run_progress.saved_fuel_stock.is_empty()
 	for fuel_data in FuelCatalog.get_all():
 		if not has_saved_daily_stock and not is_fuel_unlocked(fuel_data.fuel_id):
@@ -127,7 +130,7 @@ func get_fuel_count(fuel_id: String) -> int:
 
 func is_fuel_unlocked(fuel_id: String) -> bool:
 	var fuel_data := FuelCatalog.get_by_id(fuel_id)
-	return fuel_data != null and run_progress.day_number >= fuel_data.unlock_day
+	return fuel_data != null and fuel_data.unlock_day <= 3 and run_progress.day_number >= fuel_data.unlock_day
 
 func get_run_ember_reserve() -> float:
 	return run_progress.ember_reserve
@@ -144,8 +147,10 @@ func add_soot(amount: float) -> void:
 func advance_workday(seconds: float) -> bool:
 	return run_progress.advance_workday(seconds)
 
-func close_workday() -> float:
-	var sold_ash: float = run_progress.close_workday()
+func close_workday(manual: bool = false) -> float:
+	var sold_ash: float = run_progress.close_workday(manual)
+	if sold_ash < 0.0:
+		return -1.0
 	economy.soot = run_progress.current_soot
 	for fuel_data in FuelCatalog.get_all():
 		if is_fuel_unlocked(fuel_data.fuel_id):
@@ -161,6 +166,15 @@ func get_day_number() -> int:
 
 func get_day_elapsed() -> float:
 	return run_progress.day_elapsed
+
+func can_rest() -> bool:
+	return run_progress.day_elapsed >= REST_UNLOCK_SECONDS
+
+func get_daily_fire_state() -> Dictionary:
+	return run_progress.daily_fire_state.duplicate(true)
+
+func set_daily_fire_state(state: Dictionary) -> void:
+	run_progress.daily_fire_state = state.duplicate(true)
 
 func get_daily_ash() -> float:
 	return run_progress.daily_ash
@@ -280,6 +294,9 @@ func add_fuel_stock(fuel_id: String, amount: int = 1) -> bool:
 
 func can_store_fuel(amount: int = 1) -> bool:
 	return inventory.can_add_fuel(amount)
+
+func can_store_fuel_type(fuel_id: String) -> bool:
+	return inventory.get_count(fuel_id) < InventoryModule.MAX_STOCK_PER_FUEL and inventory.can_add_fuel()
 
 func reset_inventory() -> void:
 	inventory.reset_to_starting_stock()

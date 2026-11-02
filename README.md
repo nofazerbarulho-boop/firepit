@@ -1,39 +1,33 @@
 # HOGUERAS
 
-Prototipo 3D en Godot 4.7.2. El ciclo principal consiste en preparar la mezcla, encender una o ambas hogueras, invertir hollín en mejoras y obtener brasas al prestigiar.
+Juego incremental 3D en Godot 4.7.2. Gestiona una hoguera en una nave industrial: prepara combustible, genera ceniza, la vende al final de la jornada y reinvierte el hollín en mejoras.
 
 ## Empezar a jugar
 
 1. Abre `project.godot` con Godot 4.7.2.
-2. Pulsa **F6** para ejecutar la escena abierta o **F5** para iniciar `Scenes/main.tscn`.
-3. Usa el panel desplazable de la izquierda para cargar combustible, encender, comprar y mejorar. El HUD muestra el calor, la producción y el progreso a la siguiente brasa.
+2. Pulsa **F5** para iniciar `Scenes/main.tscn`.
+3. Carga combustible, enciende la hoguera y sigue el temporizador de jornada en la pestaña **Hoguera**.
 
-El progreso de juego se guarda en `user://hogueras_save.cfg`; presentación y accesibilidad se guardan en `user://presentation.cfg`. Los datos viven fuera de la carpeta del proyecto, en el directorio de usuario que Godot reserva para la aplicación.
+La jornada dura 4 minutos activos. Se puede descansar después de 2 minutos; si no, el día se cierra automáticamente. El juego guarda el tiempo restante y la pila de combustión, y congela el reloj cuando se cierra la aplicación.
 
-## Ciclo y controles
+## Bucle y controles
 
-- **Cargar** añade una unidad a la pila en el orden elegido. La mezcla afecta a la calidad.
-- **Encender** inicia la pila; el calor genera hollín. Si el fuego se apaga, el calor residual se enfría.
-- **Tienda** compra combustible con hollín. Las entregas periódicas reponen el almacén hasta 99 unidades por tipo.
-- **Mejoras** aumentan producción. Las ramas de brasas persisten entre runs.
-- **Prestigio** reinicia la economía temporal y entrega una brasa por cada 100 de hollín generado.
-- **Hoguera II** tiene almacén y mejora local; la automatización se desbloquea y configura por separado.
-- Las opciones de tiers, skins, volumen, contraste y tamaño de texto están en **Mundo y entregas**.
+- **Cargar** añade combustible a la pila; el orden afecta a la calidad de la mezcla.
+- **Encender** inicia la combustión. La temperatura genera ceniza, que se convierte en hollín al cierre de la jornada.
+- **Combustible** permite comprar unidades con hollín. Se conservan las existencias y se recibe suministro al comenzar cada día.
+- **Mejoras** aumenta la producción y permite gastar las brasas permanentes que conceden los hitos de 100, 500 y 1.000 °C.
+- La UI incluye ajustes de volumen, contraste y tamaño de texto.
 
-El progreso offline estima la producción y está limitado a ocho horas. Revisa el resumen al volver; el valor se calcula con la tasa media estimada del combustible disponible al guardar.
+El juego usa una hoguera y los combustibles básicos de los días 1–3. Prestigio, segunda hoguera, progreso offline, instalaciones, automatización y combustibles tardíos no están disponibles en el flujo de Early Access.
+
+El progreso se guarda en `user://hogueras_save.cfg`; audio, presentación y accesibilidad se guardan en `user://presentation.cfg`. Al pasar desde un guardado del prototipo, la campaña empieza limpia; el guardado anterior se conserva como `hogueras_save.cfg.legacy.bak` y los ajustes de presentación se mantienen.
 
 ## Exportar para Windows
 
-El proyecto incluye `export_presets.cfg` con el preset **Windows Desktop**. En Godot, instala las plantillas de exportación de la misma versión desde **Editor > Manage Export Templates** y elige **Project > Export > Windows Desktop > Export Project**. La salida está configurada en `build/Hogueras.exe`; el preset genera también el archivo `.pck` junto al ejecutable. Mantén ambos archivos en la misma carpeta al distribuir.
+El proyecto incluye el preset **Windows Desktop** en `export_presets.cfg`. Instala las plantillas de exportación de Godot 4.7.2 y elige **Project > Export > Windows Desktop > Export Project**. La salida está configurada en `build/Hogueras.exe`; distribuye el `.exe` junto al `.pck`.
 
-Para exportar en limpio, abre el proyecto, espera a que termine la importación, ejecuta la escena principal y luego exporta. Prueba la carpeta exportada en una máquina sin Godot y confirma que guarda progreso en el directorio de usuario. Esta comprobación de distribución sigue pendiente.
+La exportación en una instalación limpia y la prueba de rendimiento en un PC de referencia siguen pendientes de validación en Godot.
 
-## Límites conocidos del prototipo
+## Pruebas
 
-- El cálculo offline es aproximado y no simula cada transición de fuego.
-- Los recursos y costes son valores de prototipo; hacen falta pruebas de runs cortas y largas para cerrar el balance.
-- La versión se considera validada solo después de abrirla y jugarla en Godot y comprobar la exportación en una instalación limpia.
-
-## Logs de pruebas
-
-La regresión automatizada `Tests/sprint0_smoke.tscn` crea un log nuevo en cada ejecución en `Tests/Logs/`. Cada comprobación registra hora, resultado y descripción; el archivo termina con un resumen de aprobadas y fallidas. La ruta absoluta aparece también en la consola de Godot.
+Ejecuta `Tests/workday_acceptance.tscn` para comprobar los límites de la jornada, el suministro, las compras sin saldo o sin capacidad, las recompensas únicas por hitos y la reanudación de la combustión guardada. `Tests/sprint0_smoke.tscn` conserva regresiones de sistemas anteriores del prototipo.

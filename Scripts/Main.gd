@@ -29,6 +29,7 @@ var fire_light: OmniLight3D
 var second_fire_light: OmniLight3D
 var fuel_buttons: Dictionary = {}
 var purchase_buttons: Dictionary = {}
+var load_all_button: Button
 var hud_layer: CanvasLayer
 var second_fire_label: Label
 var delivery_label: Label
@@ -48,6 +49,7 @@ var presentation_config := ConfigFile.new()
 var tier_names: Array[String] = ["Convencional", "Fatuo", "Valyrio", "Negro"]
 var gain_popups: Array[Label] = []
 var resource_bar: HBoxContainer
+var resource_card_panel: PanelContainer
 var control_tabs: TabContainer
 var map_hint_label: Label
 var fire_intensity: ProgressBar
@@ -97,17 +99,34 @@ class SkillTreeConnections extends Control:
 	var points: Array[Vector2] = []
 	var links: Array[Vector2i] = []
 	func _draw() -> void:
+		# Scatter of rivets and charcoal gives the map a workshop surface without
+		# turning the skill nodes into decorative, non-interactive controls.
+		for rivet in [Vector2(0.035, 0.12), Vector2(0.965, 0.12), Vector2(0.035, 0.88), Vector2(0.965, 0.88)]:
+			var p := Vector2(rivet.x * size.x, rivet.y * size.y)
+			draw_circle(p + Vector2(1, 2), 6.0, Color(0.02, 0.02, 0.02, 0.8))
+			draw_circle(p, 5.0, Color("756a58"))
+			draw_circle(p, 2.0, Color("282725"))
 		for link in links:
 			if link.x >= points.size() or link.y >= points.size():
 				continue
 			var a := Vector2(points[link.x].x * size.x, points[link.x].y * size.y)
 			var b := Vector2(points[link.y].x * size.x, points[link.y].y * size.y)
-			var bend := Vector2((a.x + b.x) * 0.5, minf(a.y, b.y) - 22.0 if absf(a.y - b.y) > 30.0 else a.y - 12.0)
-			draw_line(a, bend, Color("171819"), 11.0, true)
-			draw_line(bend, b, Color("171819"), 11.0, true)
-			draw_line(a + Vector2(0, -1), bend + Vector2(0, -1), Color("827b6e"), 3.0, true)
-			draw_line(bend + Vector2(0, -1), b + Vector2(0, -1), Color("827b6e"), 3.0, true)
-			draw_circle(bend, 3.0, Color("d08a43"))
+			var bend := Vector2((a.x + b.x) * 0.5, minf(a.y, b.y) - 30.0 if absf(a.y - b.y) > 30.0 else minf(a.y, b.y) - 18.0)
+			var points_curve := PackedVector2Array()
+			for step in range(17):
+				var t := float(step) / 16.0
+				var one_minus := 1.0 - t
+				points_curve.append(one_minus * one_minus * a + 2.0 * one_minus * t * bend + t * t * b)
+			draw_polyline(points_curve, Color(0.025, 0.022, 0.018, 0.95), 13.0, true)
+			draw_polyline(points_curve, Color("4c4032"), 8.0, true)
+			var highlight := PackedVector2Array()
+			for point in points_curve:
+				highlight.append(point + Vector2(-1.0, -1.5))
+			draw_polyline(highlight, Color("9a805d"), 2.0, true)
+			# Short alternating strands suggest braided rope at normal UI scale.
+			for strand in range(1, 15, 2):
+				draw_line(points_curve[strand], points_curve[strand + 2], Color("c49a60"), 1.5, true)
+			draw_circle(bend, 4.0, Color("d08a43"))
 
 func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed and not event.echo:
@@ -200,25 +219,12 @@ func _on_start_pressed() -> void:
 func _show_pregame_selection() -> void:
 	_prepare_main_menu_screen("Preparar partida")
 	var progress_note := Label.new()
-	progress_note.text = "Elige el entorno y la apariencia de tu hoguera."
+	progress_note.text = "Ajusta la apariencia de la hoguera antes de continuar."
 	progress_note.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	main_menu_layout.add_child(progress_note)
 	pregame_selection_label = Label.new()
 	pregame_selection_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	main_menu_layout.add_child(pregame_selection_label)
-	var biomes := HBoxContainer.new()
-	main_menu_layout.add_child(biomes)
-	var forest := Button.new()
-	forest.text = "Bosque"
-	forest.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	forest.pressed.connect(_on_select_biome.bind(0))
-	biomes.add_child(forest)
-	var bog := Button.new()
-	bog.text = "Turbera (5 brasas)"
-	bog.disabled = GameManager.get_permanent_points() < 5
-	bog.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	bog.pressed.connect(_on_select_biome.bind(1))
-	biomes.add_child(bog)
 	_add_main_menu_button("Cambiar apariencia del fuego", _cycle_cosmetic_skin)
 	_add_main_menu_button("Empezar", _begin_game)
 	_add_main_menu_button("Volver", _show_main_menu)
@@ -226,9 +232,8 @@ func _show_pregame_selection() -> void:
 
 func _update_pregame_selection_label() -> void:
 	if is_instance_valid(pregame_selection_label):
-		var biome_name := "Bosque" if biome_index == 0 else "Turbera"
 		var skin_name: Array[String] = ["Natural", "Ámbar", "Azul pálido"]
-		pregame_selection_label.text = "Bioma: %s  ·  Fuego: %s" % [biome_name, skin_name[selected_skin]]
+		pregame_selection_label.text = "Fuego: %s" % skin_name[selected_skin]
 
 func _begin_game() -> void:
 	game_started = true
@@ -237,7 +242,6 @@ func _begin_game() -> void:
 	menu_panel.visible = false
 	menu_toggle.text = "☰"
 	fire.set_process(true)
-	second_fire.set_process(true)
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 	_refresh_hud()
 
@@ -285,7 +289,6 @@ func _show_options_screen() -> void:
 func _set_fire_volume(value: float) -> void:
 	fire_volume = clampf(value, 0.0, 1.0)
 	fire.set_fire_volume(fire_volume)
-	second_fire.set_fire_volume(fire_volume)
 	if is_instance_valid(options_volume_value):
 		options_volume_value.text = "%d%%" % int(fire_volume * 100.0)
 	if is_instance_valid(volume_button):
@@ -308,32 +311,33 @@ func _close_options_screen() -> void:
 		_show_main_menu()
 
 func _quit_game() -> void:
-	_save_offline_progress()
+	_save_session_progress()
 	get_tree().quit()
 
 func _ready() -> void:
 	second_fire.has_private_inventory = true
 	second_fire.private_stock = second_fire.build_starting_stock()
 	second_fire.uses_ember_reserve = false
-	_restore_automation_settings()
+	second_fire.visible = false
+	second_fire.set_process(false)
+	fire.automation_unlocked = false
+	fire.automation_active = false
 	fuel_shop = FuelShop.new()
 	add_child(fuel_shop)
 	_build_world()
+	fire.restore_save_state(GameManager.get_daily_fire_state())
 	_build_hud()
 	_load_presentation_settings()
 	_show_main_menu()
 	hud_layer.visible = false
 	menu_panel.visible = false
 	fire.set_process(false)
-	second_fire.set_process(false)
 	GameManager.economy_changed.connect(_request_hud_refresh)
 	GameManager.inventory_changed.connect(_request_hud_refresh)
 	fire.fire_changed.connect(_request_hud_refresh)
 	fire.gain_batch.connect(_show_gain_popup)
 	fire.critical_explosion.connect(_on_critical_explosion)
-	second_fire.fire_changed.connect(_request_hud_refresh)
-	second_fire.gain_batch.connect(_show_gain_popup)
-	get_tree().root.close_requested.connect(_save_offline_progress)
+	get_tree().root.close_requested.connect(_save_session_progress)
 	_refresh_hud()
 
 func _process(delta: float) -> void:
@@ -349,13 +353,14 @@ func _process(delta: float) -> void:
 			_refresh_hud()
 	if GameManager.advance_workday(delta):
 		var sold_ash := GameManager.close_workday()
-		feedback_label.text = "Jornada cerrada: ceniza vendida por %.1f de hollín. Día %d." % [sold_ash, GameManager.get_day_number()]
+		if sold_ash >= 0.0:
+			feedback_label.text = "Jornada cerrada: ceniza vendida por %.1f de hollín. Día %d." % [sold_ash, GameManager.get_day_number()]
 		daily_save_elapsed = 0.0
 		_refresh_hud()
-	GameManager.advance_logistics(delta)
 	daily_save_elapsed += delta
 	if daily_save_elapsed >= 10.0:
 		daily_save_elapsed = 0.0
+		GameManager.set_daily_fire_state(fire.get_save_state())
 		GameManager.save_daily_state()
 	var milestone_reward := GameManager.claim_temperature_milestones(fire.current_heat)
 	if milestone_reward > 0:
@@ -464,7 +469,7 @@ func _build_hearth_surroundings() -> void:
 	var soot_stain := _make_surface(Color(0.075, 0.067, 0.057), 1.0)
 	var firebrick := _make_surface(Color(0.20, 0.18, 0.15), 0.92)
 	var ash := _make_surface(Color(0.18, 0.17, 0.15), 1.0)
-	for center_x in [0.0, 2.5]:
+	for center_x in [0.0]:
 		var stain := _add_cylinder("HearthScorch", Vector3(center_x, -0.038, 0.0), 1.08, 0.025, soot_stain)
 		stain.name = "HearthScorch_%.1f" % center_x
 		for stone_index in range(12):
@@ -650,12 +655,31 @@ func _build_hud() -> void:
 	menu_toggle.size = Vector2(48, 44)
 	menu_toggle.pressed.connect(_toggle_menu)
 	hud_layer.add_child(menu_toggle)
+	resource_card_panel = PanelContainer.new()
+	resource_card_panel.set_anchors_and_offsets_preset(Control.PRESET_TOP_RIGHT)
+	resource_card_panel.offset_left = -344.0
+	resource_card_panel.offset_right = -16.0
+	resource_card_panel.offset_top = 12.0
+	resource_card_panel.offset_bottom = 66.0
+	var resource_plate := StyleBoxFlat.new()
+	resource_plate.bg_color = Color(0.055, 0.05, 0.043, 0.88)
+	resource_plate.border_color = Color("75634e")
+	resource_plate.set_border_width_all(1)
+	resource_plate.set_corner_radius_all(5)
+	resource_plate.shadow_color = Color(0, 0, 0, 0.55)
+	resource_plate.shadow_size = 5
+	resource_plate.shadow_offset = Vector2(2, 3)
+	resource_plate.content_margin_left = 10
+	resource_plate.content_margin_right = 10
+	resource_plate.content_margin_top = 4
+	resource_plate.content_margin_bottom = 4
+	resource_card_panel.add_theme_stylebox_override("panel", resource_plate)
+	hud_layer.add_child(resource_card_panel)
 	resource_bar = HBoxContainer.new()
 	resource_bar.theme = hud_theme
-	resource_bar.position = Vector2(76, 16)
-	resource_bar.size = Vector2(310, 40)
+	resource_bar.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	resource_bar.add_theme_constant_override("separation", 8)
-	hud_layer.add_child(resource_bar)
+	resource_card_panel.add_child(resource_bar)
 	for badge_ember in [false, true]:
 		var badge := ResourceBadge.new()
 		badge.ember = badge_ember
@@ -704,6 +728,11 @@ func _build_hud() -> void:
 	layout.add_child(soot_label)
 	stats_label = Label.new()
 	layout.add_child(stats_label)
+	delivery_label = Label.new()
+	delivery_label.add_theme_font_size_override("font_size", 17)
+	delivery_label.add_theme_color_override("font_color", Color("FFC56A"))
+	delivery_label.custom_minimum_size.y = 34.0
+	layout.add_child(delivery_label)
 	rate_label = Label.new()
 	layout.add_child(rate_label)
 	progress_label = Label.new()
@@ -749,15 +778,23 @@ func _build_hud() -> void:
 	feedback_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	layout.add_child(feedback_label)
 	for fuel_data in FuelCatalog.get_all():
+		if fuel_data.unlock_day > 3:
+			continue
 		layout = fuel_layout
 		_add_fuel_button(layout, "Cargar " + fuel_data.display_name, fuel_data.fuel_id)
 	layout = fuel_layout
+	load_all_button = Button.new()
+	load_all_button.text = "Cargar todo el combustible disponible"
+	load_all_button.pressed.connect(_on_load_all_available)
+	layout.add_child(load_all_button)
 	_build_skill_tree_overlay()
 
 	var shop_title := Label.new()
 	shop_title.text = "Tienda de combustible · paga con hollín"
 	layout.add_child(shop_title)
 	for fuel_data in FuelCatalog.get_all():
+		if fuel_data.unlock_day > 3:
+			continue
 		_add_purchase_button(layout, "Comprar " + fuel_data.display_name, fuel_data.fuel_id)
 	remove_fuel_button = Button.new()
 	remove_fuel_button.text = "Retirar último combustible"
@@ -784,39 +821,6 @@ func _build_hud() -> void:
 	skill_tree_open_button.text = "Abrir arbol de mejoras"
 	skill_tree_open_button.pressed.connect(_open_skill_tree)
 	layout.add_child(skill_tree_open_button)
-	prestige_button = Button.new()
-	prestige_button.pressed.connect(_on_prestige)
-	layout.add_child(prestige_button)
-	prestige_button.visible = false
-	var facilities_title := Label.new()
-	facilities_title.text = "Instalaciones y logística"
-	layout.add_child(facilities_title)
-	for facility in ["warehouse", "silo", "workshop", "garage"]:
-		var facility_button := Button.new()
-		facility_button.pressed.connect(_on_upgrade_facility.bind(facility))
-		layout.add_child(facility_button)
-		facility_buttons[facility] = facility_button
-	wagon_button = Button.new()
-	wagon_button.text = "Enviar vagoneta (10 s, hasta 50 cenizas)"
-	wagon_button.pressed.connect(_on_dispatch_wagon)
-	layout.add_child(wagon_button)
-	truck_button = Button.new()
-	truck_button.pressed.connect(_on_request_truck)
-	layout.add_child(truck_button)
-	for tech in ["gas", "tritium", "laser"]:
-		var tech_button := Button.new()
-		tech_button.pressed.connect(_on_experimental.bind(tech))
-		layout.add_child(tech_button)
-		experimental_buttons[tech] = tech_button
-	var world_title := Label.new()
-	world_title.text = "Combustibles y suministro diario"
-	layout.add_child(world_title)
-	presentation_label = Label.new()
-	presentation_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	layout.add_child(presentation_label)
-	tier_button = Button.new()
-	tier_button.pressed.connect(_cycle_fire_tier)
-	layout.add_child(tier_button)
 	accessibility_button = Button.new()
 	accessibility_button.pressed.connect(_cycle_accessibility)
 	layout.add_child(accessibility_button)
@@ -827,31 +831,6 @@ func _build_hud() -> void:
 	options_button.text = "Configuración"
 	options_button.pressed.connect(_open_options_from_game)
 	layout.add_child(options_button)
-	delivery_label = Label.new()
-	layout.add_child(delivery_label)
-	var second_title := Label.new()
-	second_title.text = "Hoguera II · instalación independiente"
-	layout.add_child(second_title)
-	second_fire_label = Label.new()
-	layout.add_child(second_fire_label)
-	for fuel_data in FuelCatalog.get_all():
-		var station_button := Button.new()
-		station_button.text = "Hoguera II: cargar " + fuel_data.display_name
-		station_button.pressed.connect(_on_add_second_fuel.bind(fuel_data.fuel_id))
-		layout.add_child(station_button)
-	var second_ignite := Button.new()
-	second_ignite.text = "Encender hoguera II"
-	second_ignite.pressed.connect(_on_ignite_second)
-	layout.add_child(second_ignite)
-	var second_remove := Button.new()
-	second_remove.text = "Retirar última carga de hoguera II"
-	second_remove.pressed.connect(_on_remove_second_fuel)
-	layout.add_child(second_remove)
-	second_upgrade_button = Button.new()
-	second_upgrade_button.pressed.connect(_on_upgrade_second)
-	layout.add_child(second_upgrade_button)
-	_add_automation_controls(layout, fire, "Hoguera I", 80.0)
-	_add_automation_controls(layout, second_fire, "Hoguera II", 160.0)
 	_apply_accessibility()
 	_update_resource_cards()
 	_resize_hud_panel()
@@ -931,7 +910,7 @@ func _update_resource_cards() -> void:
 	var soot_count := hud_layer.find_child("SootCount", true, false) as Label
 	var ember_count := hud_layer.find_child("EmberCount", true, false) as Label
 	if is_instance_valid(soot_count): soot_count.text = "HOLLÍN\n%s" % _format_resource_count(GameManager.get_soot())
-	if is_instance_valid(ember_count): ember_count.text = "BRASAS\n%d" % GameManager.get_permanent_points()
+	if is_instance_valid(ember_count): ember_count.text = "BRASAS\n%d" % GameManager.get_available_embers()
 
 func _install_button_feedback() -> void:
 	for control in _walk_controls(hud_layer):
@@ -961,9 +940,9 @@ func _tween_button_scale(button: Button, target: Vector2, duration: float) -> vo
 	tween.tween_property(button, "scale", target, duration).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
 
 func _start_button_tween(button: Button) -> Tween:
-	var previous: Variant = button_tweens.get(button)
-	if is_instance_valid(previous):
-		(previous as Tween).kill()
+	var previous_tween := button_tweens.get(button) as Tween
+	if is_instance_valid(previous_tween):
+		previous_tween.kill()
 	var tween := button.create_tween()
 	button_tweens[button] = tween
 	return tween
@@ -988,26 +967,25 @@ func _resize_hud_panel() -> void:
 	menu_panel.size = Vector2(panel_width, maxf(150.0, viewport_size.y - panel_top - 16.0))
 	if compact:
 		map_hint_label.text = "WASD mover · Shift correr · Ratón mirar · Esc cursor · Tab menú"
-		map_hint_label.set_anchors_and_offsets_preset(Control.PRESET_TOP_LEFT)
-		map_hint_label.position = Vector2(16.0, 58.0)
-		map_hint_label.custom_minimum_size = Vector2(viewport_size.x - 32.0, 40.0)
-		map_hint_label.size = Vector2(viewport_size.x - 32.0, 40.0)
-		map_hint_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
 		if narrow:
 			map_hint_label.text = "WASD mover · Shift correr · Ratón mirar\nEsc cursor · Tab menú"
 	else:
 		map_hint_label.text = "WASD: mover  ·  Shift: correr  ·  Ratón: mirar  ·  Esc: liberar cursor  ·  Tab: menú"
-		map_hint_label.set_anchors_and_offsets_preset(Control.PRESET_TOP_RIGHT)
-		map_hint_label.position = Vector2(-490.0, 20.0)
-		map_hint_label.custom_minimum_size = Vector2(470.0, 28.0)
-		map_hint_label.size = Vector2(470.0, 28.0)
-		map_hint_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-	resource_bar.size.x = 230.0 if narrow else 310.0
+	map_hint_label.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_RIGHT)
+	map_hint_label.offset_left = -minf(viewport_size.x - 32.0, 470.0)
+	map_hint_label.offset_right = -16.0
+	map_hint_label.offset_top = -52.0 if narrow else -38.0
+	map_hint_label.offset_bottom = -12.0
+	map_hint_label.custom_minimum_size = Vector2(minf(viewport_size.x - 32.0, 470.0), 40.0 if narrow else 28.0)
+	map_hint_label.size = map_hint_label.custom_minimum_size
+	map_hint_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	resource_card_panel.offset_left = -270.0 if narrow else -344.0
+	resource_card_panel.offset_right = -12.0 if narrow else -16.0
 	for badge in resource_bar.get_children():
 		if badge is ResourceBadge:
 			badge.custom_minimum_size = Vector2(28.0, 28.0) if narrow else Vector2(34.0, 34.0)
 		elif badge is Label:
-			badge.custom_minimum_size.x = 76.0 if narrow else 110.0
+			badge.custom_minimum_size.x = 82.0 if narrow else 110.0
 	if is_instance_valid(control_tabs):
 		for page in control_tabs.get_children():
 			if page is ScrollContainer:
@@ -1050,7 +1028,8 @@ func _on_cycle_fuel_priority(target_fire: FireManager) -> void:
 	feedback_label.text = "Prioridad actualizada: %s." % target_fire.get_fuel_priority_text()
 	_refresh_hud()
 
-func _save_offline_progress() -> void:
+func _save_session_progress() -> void:
+	GameManager.set_daily_fire_state(fire.get_save_state())
 	GameManager.save_daily_state()
 
 func _get_fire_automation_settings(target_fire: FireManager) -> Dictionary:
@@ -1101,26 +1080,11 @@ func _on_upgrade_second() -> void:
 	_refresh_hud()
 
 func _on_select_biome(selected: int) -> void:
-	if selected == 1 and GameManager.get_permanent_points() < 5:
-		feedback_label.text = "La turbera se desbloquea al ganar 5 brasas permanentes."
-		return
-	biome_index = selected
-	var multiplier := 1.0 if biome_index == 0 else 1.25
-	fire.biome_heat_multiplier = multiplier
-	second_fire.biome_heat_multiplier = multiplier
-	if is_instance_valid(fire_light):
-		fire_light.light_color = Color(1.0, 0.3, 0.08) if biome_index == 0 else Color(0.28, 0.62, 0.42)
-	if is_instance_valid(second_fire_light):
-		second_fire_light.light_color = Color(1.0, 0.3, 0.08) if biome_index == 0 else Color(0.28, 0.62, 0.42)
-	var ground := get_node_or_null("Ground") as MeshInstance3D
-	if ground != null:
-		var ground_material := ground.material_override as StandardMaterial3D
-		if ground_material != null:
-			ground_material.albedo_color = Color(0.1, 0.12, 0.11) if biome_index == 0 else Color(0.08, 0.16, 0.12)
-	feedback_label.text = "Bioma cambiado."
-	presentation_config.set_value("visual", "biome", biome_index)
-	presentation_config.save("user://presentation.cfg")
-	_update_pregame_selection_label()
+	biome_index = 0
+	fire.biome_heat_multiplier = 1.0
+	second_fire.biome_heat_multiplier = 1.0
+	if is_instance_valid(pregame_selection_label):
+		_update_pregame_selection_label()
 	_refresh_hud()
 
 func _get_unlocked_fire_tier() -> int:
@@ -1171,15 +1135,12 @@ func _load_presentation_settings() -> void:
 	large_text = bool(presentation_config.get_value("accessibility", "large_text", false))
 	high_contrast = bool(presentation_config.get_value("accessibility", "high_contrast", false))
 	fire_volume = float(presentation_config.get_value("audio", "volume", 0.35))
-	biome_index = clampi(int(presentation_config.get_value("visual", "biome", 0)), 0, 1)
+	biome_index = 0
 	mouse_sensitivity = clampf(float(presentation_config.get_value("controls", "mouse_sensitivity", 0.0025)), 0.001, 0.006)
 	var saved_tier := int(presentation_config.get_value("visual", "tier", 0))
 	_apply_visual_style(saved_tier, selected_skin)
 	fire.set_fire_volume(fire_volume)
-	second_fire.set_fire_volume(fire_volume)
-	if biome_index == 1 and GameManager.get_permanent_points() < 5:
-		biome_index = 0
-	fire.biome_heat_multiplier = 1.0 if biome_index == 0 else 1.25
+	fire.biome_heat_multiplier = 1.0
 	second_fire.biome_heat_multiplier = fire.biome_heat_multiplier
 	if is_instance_valid(fire_light):
 		fire_light.light_color = Color(1.0, 0.3, 0.08) if biome_index == 0 else Color(0.28, 0.62, 0.42)
@@ -1250,13 +1211,28 @@ func _on_add_fuel(fuel_id: String) -> void:
 		_set_action_feedback("No queda más de ese combustible en el inventario.", false)
 	_refresh_hud()
 
+func _on_load_all_available() -> void:
+	var added := 0
+	for fuel_data in FuelCatalog.get_all():
+		if fuel_data.unlock_day > 3:
+			continue
+		while GameManager.get_fuel_count(fuel_data.fuel_id) > 0:
+			if not fire.add_fuel(fuel_data.fuel_id):
+				break
+			added += 1
+	if added > 0:
+		_set_action_feedback("Pila cargada con %d unidades en orden recomendado." % added, true, "%d combustibles a la pila" % added)
+	else:
+		_set_action_feedback("No hay combustible disponible para cargar.", false)
+	_refresh_hud()
+
 func _on_buy_fuel(fuel_id: String) -> void:
 	if fuel_shop.buy_fuel(fuel_id):
 		_set_action_feedback("Combustible comprado con hollín.", true, "%s comprado" % fuel_shop.get_display_name(fuel_id))
 	elif not GameManager.is_fuel_unlocked(fuel_id):
 		_set_action_feedback("Este combustible se desbloquea el día %d." % FuelCatalog.get_by_id(fuel_id).unlock_day, false)
-	elif not GameManager.can_store_fuel():
-		_set_action_feedback("Almacén lleno. Mejora su capacidad antes de comprar más.", false)
+	elif not GameManager.can_store_fuel_type(fuel_id):
+		_set_action_feedback("No queda espacio para guardar más de ese combustible.", false)
 	elif GameManager.get_soot() < fuel_shop.get_price(fuel_id):
 		_set_action_feedback("Necesitas %.0f de hollín para comprar %s." % [fuel_shop.get_price(fuel_id), fuel_shop.get_display_name(fuel_id)], false)
 	else:
@@ -1287,12 +1263,17 @@ func _on_stoke() -> void:
 	_refresh_hud()
 
 func _on_rest() -> void:
-	if GameManager.get_day_elapsed() < 120.0:
+	if not GameManager.can_rest():
 		feedback_label.text = "Podrás descansar después de 2 minutos de jornada."
 		return
-	var sold_ash := GameManager.close_workday()
+	var sold_ash := GameManager.close_workday(true)
+	if sold_ash < 0.0:
+		feedback_label.text = "La jornada todavía no se puede cerrar."
+		return
 	feedback_label.text = "Jornada cerrada: ceniza vendida por %.1f de hollín. Día %d." % [sold_ash, GameManager.get_day_number()]
 	daily_save_elapsed = 0.0
+	GameManager.set_daily_fire_state(fire.get_save_state())
+	GameManager.save_daily_state()
 	_refresh_hud()
 
 func _on_upgrade_facility(kind: String) -> void:
@@ -1548,11 +1529,14 @@ func _make_skill_panel_style(background: Color, border: Color) -> StyleBoxFlat:
 	style.bg_color = background
 	style.border_color = border
 	style.set_border_width_all(2)
-	style.set_corner_radius_all(9)
-	style.content_margin_left = 10.0
-	style.content_margin_top = 8.0
-	style.content_margin_right = 10.0
-	style.content_margin_bottom = 8.0
+	style.set_corner_radius_all(5)
+	style.shadow_color = Color(0.0, 0.0, 0.0, 0.48)
+	style.shadow_size = 4
+	style.shadow_offset = Vector2(2.0, 3.0)
+	style.content_margin_left = 12.0
+	style.content_margin_top = 9.0
+	style.content_margin_right = 12.0
+	style.content_margin_bottom = 9.0
 	return style
 
 func _on_purchase_permanent_node(node_id: String) -> void:
@@ -1572,61 +1556,17 @@ func _refresh_hud() -> void:
 		return
 	hud_refresh_pending = false
 	hud_refresh_elapsed = 0.0
-	var unlocked_tier := _get_unlocked_fire_tier()
-	presentation_label.text = "Tier %s | desbloqueado hasta %s (%d brasas)\nLas tiers cambian el aspecto. Skin: %s (sin bonus)." % [tier_names[fire.visual_tier], tier_names[unlocked_tier], GameManager.get_permanent_points(), ["Natural", "Ambar", "Azul palido"][selected_skin]]
-	tier_button.text = "Cambiar tier: %s" % tier_names[fire.visual_tier]
-	tier_button.disabled = unlocked_tier == 0
 	accessibility_button.text = "Accesibilidad: %s%s" % ["texto grande" if large_text else "texto normal", " | alto contraste" if high_contrast else ""]
 	volume_button.text = "Volumen del fuego: %d%%" % int(fire_volume * 100.0)
 	soot_label.text = "Hollín disponible: %.1f | Ceniza de la jornada: %.1f" % [GameManager.get_soot(), GameManager.get_daily_ash()]
 	_update_resource_cards()
 	stats_label.text = "Temperatura: %.1f °C (x%.2f) | Multiplicador: %.2fx\nBrasas ganadas: %d | Disponibles: %d" % [fire.current_heat, GameManager.get_thermal_multiplier(), GameManager.get_global_multiplier(), GameManager.get_permanent_points(), GameManager.get_available_embers()]
-	var second_stock_parts := PackedStringArray()
-	for fuel_data in FuelCatalog.get_all():
-		second_stock_parts.append("%s %d" % [fuel_data.display_name, second_fire.private_stock.get(fuel_data.fuel_id, 0)])
-	second_fire_label.text = "Stock propio: %s | Calor: %.1f | %s" % [" | ".join(second_stock_parts), second_fire.current_heat, second_fire.get_current_phase()]
-	var second_upgrade_cost := 50.0 * pow(1.7, second_fire.local_upgrade_level)
-	second_upgrade_button.text = "Mejora Hoguera II: +0,25x (%.0f hollin) | x%.2f" % [second_upgrade_cost, second_fire.local_production_multiplier]
-	second_upgrade_button.disabled = GameManager.get_soot() < second_upgrade_cost
-	for control in automation_controls:
-		var target_fire: FireManager = control.fire
-		var toggle: Button = control.toggle
-		var priority: Button = control.priority
-		var unlock_cost := float(control.cost)
-		if target_fire.automation_unlocked:
-			toggle.text = "%s: %s" % [str(control.name), "Activa" if target_fire.automation_active else "Pausada"]
-		else:
-			toggle.text = "Desbloquear %s (%.0f hollin)" % [str(control.name), unlock_cost]
-		toggle.disabled = not target_fire.automation_unlocked and GameManager.get_soot() < unlock_cost
-		toggle.add_theme_color_override("font_color", Color("FFC56A") if target_fire.automation_active else Color("E4DED2"))
-		priority.text = "Prioridad: " + target_fire.get_fuel_priority_text()
-		priority.disabled = not target_fire.automation_unlocked
-	var remaining_day := maxf(0.0, 720.0 - GameManager.get_day_elapsed())
-	delivery_label.text = "Día %d · %02d:%02d · ceniza suelta %.1f / silo %.1f/%d · próxima entrega al comenzar el día" % [GameManager.get_day_number(), int(remaining_day / 60.0), int(remaining_day) % 60, GameManager.get_uncollected_ash(), GameManager.get_silo_ash(), GameManager.get_silo_capacity()]
-	for kind in facility_buttons:
-		var level := GameManager.get_facility_level(str(kind))
-		var capacity := "20→%d unidades" % GameManager.get_warehouse_capacity() if kind == "warehouse" else ("300→%d cenizas" % GameManager.get_silo_capacity() if kind == "silo" else ("vagoneta automática" if kind == "workshop" else "cargas %d | espera %.0f s" % [level + 1, maxf(30.0, 60.0 - 15.0 * level)]))
-		var cost := 50.0 * pow(1.5, level)
-		var button: Button = facility_buttons[kind]
-		button.text = "%s nivel %d/3 · %s · mejorar (%.0f hollín)" % [str(kind).capitalize(), level, capacity, cost]
-		button.disabled = level >= 3 or GameManager.get_soot() < cost
-		var visual := get_node_or_null("Facility_" + str(kind)) as MeshInstance3D
-		if visual != null:
-			visual.scale.y = (1.0 + 0.2 * float(level)) * (1.4 if kind == "silo" else 0.9 if kind == "warehouse" else 0.7)
-	wagon_button.text = "Vagoneta en ruta: %.1f s" % GameManager.get_truck_seconds_left() if GameManager.is_truck_pending() else "Enviar vagoneta (10 s, hasta 50 cenizas)"
-	wagon_button.disabled = GameManager.is_truck_pending() or GameManager.get_uncollected_ash() <= 0.0 or GameManager.get_silo_ash() >= GameManager.get_silo_capacity()
-	truck_button.text = "Camión en ruta: %.1f s" % GameManager.get_truck_seconds_left() if GameManager.is_truck_pending() else "Pedir camión (25 hollín)"
-	truck_button.disabled = GameManager.is_truck_pending() or GameManager.get_soot() < 25.0
-	for id in experimental_buttons:
-		var threshold: int = int({"gas": 100, "tritium": 500, "laser": 1000}[str(id)])
-		var button: Button = experimental_buttons[id]
-		var effect_text := "activo x%.1f · %.1f s" % [fire.experimental_heat_multiplier, fire.experimental_time_left] if fire.experimental_time_left > 0.0 else ("activar (25 hollín)" if id in ["gas", "tritium"] else "activar (50 hollín)")
-		button.text = "%s · %s" % [str(id).capitalize(), effect_text] if GameManager.get_tech_unlocked(id) else "%s · desbloquear (hito %d °C, 1 brasa)" % [str(id).capitalize(), threshold]
-		var previous_tech := "gas" if id == "tritium" else "tritium" if id == "laser" else ""
-		button.disabled = (not GameManager.get_tech_unlocked(id) and (not bool(GameManager.run_progress.claimed_temperature_milestones.get(str(threshold), false)) or GameManager.get_available_embers() < 1 or (not previous_tech.is_empty() and not GameManager.get_tech_unlocked(previous_tech)))) or (GameManager.get_tech_unlocked(id) and (not fire.burning or GameManager.get_soot() < (50.0 if id == "laser" else 25.0)))
-	rest_button.disabled = GameManager.get_day_elapsed() < 120.0
+	var remaining_day := maxf(0.0, GameManager.WORKDAY_DURATION_SECONDS - GameManager.get_day_elapsed())
+	delivery_label.text = "Día %d · jornada %02d:%02d · ceniza acumulada %.1f" % [GameManager.get_day_number(), int(remaining_day / 60.0), int(remaining_day) % 60, GameManager.get_daily_ash()]
+	rest_button.disabled = not GameManager.can_rest()
+	rest_button.tooltip_text = "Disponible después de 2 minutos de jornada." if rest_button.disabled else "Cierra la jornada y liquida la ceniza acumulada."
 	var live_rate := 0.0
-	var stations: Array[FireManager] = [fire, second_fire]
+	var stations: Array[FireManager] = [fire]
 	for station in stations:
 		if not station.burning:
 			continue
@@ -1634,7 +1574,7 @@ func _refresh_hud() -> void:
 		if station.stoke_time_left > 0.0:
 			station_rate *= FireManager.STOKE_MULTIPLIER
 		live_rate += station_rate
-	rate_label.text = "Produccion actual: %.1f hollin/s" % live_rate
+	rate_label.text = "Producción de ceniza: %.1f/s" % live_rate
 	var next_milestone := GameManager.get_next_temperature_milestone()
 	progress_label.text = "Siguiente hito: %.0f °C" % next_milestone if next_milestone > 0 else "Todos los hitos de temperatura alcanzados"
 	progress_bar.max_value = float(next_milestone) if next_milestone > 0 else 1.0
@@ -1643,6 +1583,8 @@ func _refresh_hud() -> void:
 	var stock := GameManager.get_fuel_stock()
 	var stock_parts := PackedStringArray()
 	for fuel_data in FuelCatalog.get_all():
+		if fuel_data.unlock_day > 3:
+			continue
 		stock_parts.append("%s %d" % [fuel_data.display_name, stock.get(fuel_data.fuel_id, 0)])
 	var queue_names := PackedStringArray()
 	for fuel in fire.fuel_queue:
@@ -1651,13 +1593,20 @@ func _refresh_hud() -> void:
 	queue_label.text = "Combustible: %s\nEstado: %s\nPila: %s" % [" | ".join(stock_parts), state_text, " -> ".join(queue_names) if not queue_names.is_empty() else "vacia"]
 	var quality := fire.active_quality if fire.burning else fire.get_queue_quality()
 	mix_label.text = "Calidad de mezcla: %.0f%% | +12%% por secuencia, +4%% por variedad, -2%% por repeticion." % (quality * 100.0)
-	ember_label.text = "Calor recuperado: +%.1f" % fire.recovered_ember_heat if fire.burning and fire.recovered_ember_heat > 0.0 else "Reserva: %.1f / %.1f | Siguiente run: %.1f" % [GameManager.get_run_ember_reserve(), GameManager.EMBER_RESERVE_CAP, GameManager.get_next_run_ember_reserve()]
+	ember_label.text = "Brasas disponibles para mejoras: %d" % GameManager.get_available_embers()
 	for fuel_id in fuel_buttons:
 		var fuel_button: Button = fuel_buttons[fuel_id]
 		var available := GameManager.get_fuel_count(fuel_id)
 		var unlocked := GameManager.is_fuel_unlocked(fuel_id)
 		fuel_button.disabled = available <= 0 or not unlocked
 		fuel_button.text = "Anadir %s (%d)" % [fuel_id, available] if unlocked else "%s · disponible el día %d" % [fuel_id, FuelCatalog.get_by_id(fuel_id).unlock_day]
+	var available_to_load := 0
+	for fuel_data in FuelCatalog.get_all():
+		if fuel_data.unlock_day <= 3:
+			available_to_load += GameManager.get_fuel_count(fuel_data.fuel_id)
+	load_all_button.text = "Cargar todo el combustible disponible (%d)" % available_to_load
+	load_all_button.disabled = available_to_load <= 0
+	load_all_button.tooltip_text = "Carga en orden hojarasca, leña, tronco y turba."
 	for fuel_id in purchase_buttons:
 		var purchase_button: Button = purchase_buttons[fuel_id]
 		var price := fuel_shop.get_price(fuel_id)
@@ -1675,18 +1624,11 @@ func _refresh_hud() -> void:
 	remove_fuel_button.disabled = fire.fuel_queue.size() <= (1 if fire.burning else 0)
 	upgrade_button.text = "Mejorar produccion (%.0f hollin, +0,25x | nivel %d)" % [GameManager.get_upgrade_cost(), GameManager.get_temporary_upgrades() + 1]
 	upgrade_button.disabled = GameManager.get_soot() < GameManager.get_upgrade_cost()
-	var points_available := int(floor(GameManager.get_run_soot_earned() / GameManager.PRESTIGE_THRESHOLD))
-	prestige_button.text = "Reiniciar run (+%d brasas; 100 hollin por brasa)" % points_available
-	prestige_button.disabled = points_available < 1
 	_update_guidance_and_tooltips(stock)
 	if is_instance_valid(fire_light):
 		var light_base := 0.3 + minf(fire.current_heat / 35.0, 1.0) * 2.2
 		var flicker := 1.0 + sin(float(Time.get_ticks_msec()) / 83.0) * 0.07
 		fire_light.light_energy = 0.0 if fire.current_heat <= 0.1 else light_base * flicker
-	if is_instance_valid(second_fire_light):
-		var second_light_base := 0.25 + minf(second_fire.current_heat / 35.0, 1.0) * 1.8
-		var second_flicker := 1.0 + sin(float(Time.get_ticks_msec()) / 97.0 + 1.3) * 0.08
-		second_fire_light.light_energy = 0.0 if second_fire.current_heat <= 0.1 else second_light_base * second_flicker
 	if skill_tree_overlay.visible:
 		_refresh_skill_tree()
 func _request_hud_refresh() -> void:
@@ -1705,12 +1647,7 @@ func _update_guidance_and_tooltips(stock: Dictionary) -> void:
 	elif GameManager.get_soot() >= fuel_shop.get_price("hojarasca"):
 		guidance_label.text = "Sin existencias: compra combustible en la tienda para continuar."
 	else:
-		guidance_label.text = "Sin combustible ni hollín para comprarlo. Espera a una brasa recuperable o reinicia cuando puedas."
-	if fire.burning and fire.current_heat >= 100.0 and GameManager.is_fuel_unlocked("combustible_liquido"):
-		for queued_fuel in fire.fuel_queue:
-			if queued_fuel.fuel_id == "carbon":
-				guidance_label.text += " Señales de inestabilidad: mezcla crítica posible."
-				break
+		guidance_label.text = "No queda combustible ni hollín suficiente. Descansa cuando esté disponible para recibir la siguiente entrega."
 
 	for fuel_id in fuel_buttons:
 		var fuel_button: Button = fuel_buttons[fuel_id]
@@ -1735,13 +1672,11 @@ func _update_guidance_and_tooltips(stock: Dictionary) -> void:
 	else:
 		stoke_button.tooltip_text = "Gasta 15 de hollín para producir 50%% más durante 12 s."
 	upgrade_button.tooltip_text = "Necesitas %.0f de hollín; tienes %.1f." % [GameManager.get_upgrade_cost(), GameManager.get_soot()] if GameManager.get_soot() < GameManager.get_upgrade_cost() else "Aumenta el multiplicador de producción en 0,25."
-	var points_to_next := GameManager.PRESTIGE_THRESHOLD - GameManager.get_prestige_progress()
-	prestige_button.tooltip_text = "Genera %.0f más de hollín para recibir otra brasa." % points_to_next if GameManager.get_run_soot_earned() < GameManager.PRESTIGE_THRESHOLD else "Reinicia la run y recibe las brasas acumuladas."
 
 func _show_gain_popup(amount: float) -> void:
 	if amount < 0.1:
 		return
-	_show_resource_popup("+%.1f hollín" % amount, Color("FFC56A"))
+	_show_resource_popup("+%.1f ceniza" % amount, Color("FFC56A"))
 
 func _show_resource_popup(message: String, tint: Color) -> void:
 	if not is_instance_valid(hud_layer):

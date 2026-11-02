@@ -44,16 +44,19 @@ var cosmetic_skin: int = 0
 var fire_particles: GPUParticles3D
 var spark_particles: GPUParticles3D
 var inner_flame: MeshInstance3D
+var flame_tongues: Array[MeshInstance3D] = []
 var fire_audio: AudioStreamPlayer
 var audio_volume: float = 0.35
 var hud_signal_timer: float = 0.0
 var experimental_time_left: float = 0.0
 var experimental_heat_multiplier: float = 1.0
 var fuel_visuals: Array[RigidBody3D] = []
-var fuel_visual_materials: Array[StandardMaterial3D] = []
+var fuel_visual_materials: Array[Material] = []
 var fuel_visual_ids: Array[String] = []
 var fuel_bed: StaticBody3D
 var smoke_particles: GPUParticles3D
+var ember_core: MeshInstance3D
+var leaf_burn_materials: Array[ShaderMaterial] = []
 
 func _ready() -> void:
 	if has_private_inventory:
@@ -190,6 +193,45 @@ func clear_for_new_run() -> void:
 		private_stock = build_starting_stock()
 		local_production_multiplier = 1.0
 		local_upgrade_level = 0
+	automation_unlocked = false
+	automation_active = false
+	_update_visuals()
+	fire_changed.emit()
+
+func get_save_state() -> Dictionary:
+	var queued_fuels: Array[String] = []
+	for fuel in fuel_queue:
+		queued_fuels.append(fuel.fuel_id)
+	return {
+		"fuel_queue": queued_fuels,
+		"burning": burning,
+		"remaining_burn": remaining_burn,
+		"current_heat": current_heat,
+		"active_quality": active_quality,
+		"stoke_time_left": stoke_time_left,
+	}
+
+func restore_save_state(state: Dictionary) -> void:
+	fuel_queue.clear()
+	_clear_fuel_visuals()
+	var saved_queue: Variant = state.get("fuel_queue", [])
+	if saved_queue is Array:
+		for raw_id in saved_queue:
+			var fuel_id := str(raw_id)
+			if not GameManager.is_fuel_unlocked(fuel_id):
+				continue
+			var fuel_data := FuelCatalog.get_by_id(fuel_id)
+			if fuel_data == null:
+				continue
+			fuel_queue.append(fuel_data)
+			_spawn_fuel_visual(fuel_id)
+	current_heat = maxf(0.0, float(state.get("current_heat", 0.0)))
+	active_quality = clampf(float(state.get("active_quality", 1.0)), 0.75, 1.5)
+	stoke_time_left = maxf(0.0, float(state.get("stoke_time_left", 0.0)))
+	burning = bool(state.get("burning", false)) and not fuel_queue.is_empty()
+	remaining_burn = clampf(float(state.get("remaining_burn", 0.0)), 0.0, fuel_queue[0].burn_duration) if burning else 0.0
+	if burning and remaining_burn <= 0.0:
+		remaining_burn = fuel_queue[0].burn_duration
 	automation_unlocked = false
 	automation_active = false
 	_update_visuals()
@@ -341,6 +383,7 @@ func get_automation_average_rate() -> float:
 
 func _build_fire_visuals() -> void:
 	_build_fuel_bed()
+	_build_ember_core()
 	flame = get_node_or_null("Flame") as MeshInstance3D
 	if flame == null:
 		flame = MeshInstance3D.new()
@@ -379,6 +422,29 @@ func _build_fire_visuals() -> void:
 	core_material.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
 	inner_flame.material_override = core_material
 	flame.add_child(inner_flame)
+	# A trio of tapered tongues gives the fire a readable silhouette beyond the soft outer glow.
+	var tongue_colors: Array[Color] = [Color(1.0, 0.30, 0.035), Color(1.0, 0.48, 0.055), Color(1.0, 0.22, 0.025)]
+	for index in range(3):
+		var tongue := MeshInstance3D.new()
+		tongue.name = "FlameTongue%d" % index
+		var tongue_mesh := CylinderMesh.new()
+		tongue_mesh.top_radius = 0.015
+		tongue_mesh.bottom_radius = 0.14 if index == 0 else 0.105
+		tongue_mesh.height = 0.72 if index == 0 else 0.55
+		tongue.mesh = tongue_mesh
+		tongue.position = Vector3((index - 1) * 0.13, 0.12, 0.04 if index != 1 else -0.10)
+		tongue.rotation.z = deg_to_rad((index - 1) * 12.0)
+		var tongue_material := StandardMaterial3D.new()
+		tongue_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		tongue_material.emission_enabled = true
+		tongue_material.emission = tongue_colors[index]
+		tongue_material.emission_energy_multiplier = 2.0
+		tongue_material.albedo_color = Color(tongue_colors[index].r, tongue_colors[index].g, tongue_colors[index].b, 0.88)
+		tongue_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		tongue_material.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
+		tongue.material_override = tongue_material
+		flame.add_child(tongue)
+		flame_tongues.append(tongue)
 	fire_particles = GPUParticles3D.new()
 	fire_particles.name = "FireParticles"
 	fire_particles.amount = 24
@@ -461,6 +527,24 @@ func _build_fire_visuals() -> void:
 	add_child(fire_audio)
 	fire_audio.play()
 
+func _build_ember_core() -> void:
+	ember_core = MeshInstance3D.new()
+	ember_core.name = "EmberCore"
+	var ember_mesh := SphereMesh.new()
+	ember_mesh.radius = 0.075
+	ember_mesh.height = 0.15
+	ember_core.mesh = ember_mesh
+	ember_core.position = Vector3(0.0, 0.30, 0.0)
+	var ember_material := StandardMaterial3D.new()
+	ember_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	ember_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	ember_material.emission_enabled = true
+	ember_material.emission = Color(1.0, 0.20, 0.015)
+	ember_material.emission_energy_multiplier = 4.0
+	ember_material.albedo_color = Color(1.0, 0.28, 0.025, 0.9)
+	ember_core.material_override = ember_material
+	add_child(ember_core)
+
 func _build_fuel_bed() -> void:
 	if get_node_or_null("FuelBed") != null:
 		return
@@ -488,6 +572,7 @@ func _spawn_fuel_visual(fuel_id: String) -> void:
 	var material := StandardMaterial3D.new()
 	material.roughness = 0.92
 	material.albedo_color = _fuel_color(fuel_id)
+	var leaf_shader_material: ShaderMaterial
 	match fuel_id:
 		"hojarasca":
 			var leaf := SphereMesh.new()
@@ -495,8 +580,21 @@ func _spawn_fuel_visual(fuel_id: String) -> void:
 			leaf.height = 0.07
 			mesh_instance.mesh = leaf
 			mesh_instance.scale = Vector3(1.2, 0.45, 0.8)
+			leaf_shader_material = _make_leaf_burn_material()
 			shape = SphereShape3D.new()
 			(shape as SphereShape3D).radius = 0.16
+			var vein := MeshInstance3D.new()
+			var vein_mesh := CylinderMesh.new()
+			vein_mesh.top_radius = 0.006
+			vein_mesh.bottom_radius = 0.009
+			vein_mesh.height = 0.29
+			vein.mesh = vein_mesh
+			vein.rotation_degrees.z = 90.0
+			var vein_material := StandardMaterial3D.new()
+			vein_material.albedo_color = Color(0.68, 0.43, 0.12)
+			vein_material.roughness = 1.0
+			vein.material_override = vein_material
+			mesh_instance.add_child(vein)
 		"turba":
 			var block := BoxMesh.new()
 			block.size = Vector3(0.38, 0.18, 0.28)
@@ -517,10 +615,24 @@ func _spawn_fuel_visual(fuel_id: String) -> void:
 			log.height = 0.72 if fuel_id == "tronco" else 0.48
 			mesh_instance.mesh = log
 			mesh_instance.rotation_degrees.z = 90.0
+			# Pale cut ends make the timber read as logs instead of plain cylinders.
+			var end_material := StandardMaterial3D.new()
+			end_material.albedo_color = Color(0.62, 0.39, 0.19) if fuel_id == "leña" else Color(0.48, 0.30, 0.16)
+			end_material.roughness = 1.0
+			for end_sign in [-1.0, 1.0]:
+				var end_cap := MeshInstance3D.new()
+				var cap_mesh := CylinderMesh.new()
+				cap_mesh.top_radius = 0.105
+				cap_mesh.bottom_radius = 0.13
+				cap_mesh.height = 0.018
+				end_cap.mesh = cap_mesh
+				end_cap.position.y = end_sign * log.height * 0.48
+				end_cap.material_override = end_material
+				mesh_instance.add_child(end_cap)
 			shape = CylinderShape3D.new()
 			(shape as CylinderShape3D).radius = 0.12
 			(shape as CylinderShape3D).height = log.height
-	mesh_instance.material_override = material
+	mesh_instance.material_override = leaf_shader_material if leaf_shader_material != null else material
 	body.add_child(mesh_instance)
 	var collision := CollisionShape3D.new()
 	collision.shape = shape
@@ -529,7 +641,8 @@ func _spawn_fuel_visual(fuel_id: String) -> void:
 	body.add_child(collision)
 	add_child(body)
 	fuel_visuals.append(body)
-	fuel_visual_materials.append(material)
+	fuel_visual_materials.append(leaf_shader_material if leaf_shader_material != null else material)
+	leaf_burn_materials.append(leaf_shader_material)
 	fuel_visual_ids.append(fuel_id)
 	var toss := Vector3(randf_range(-0.55, 0.55), -0.15, randf_range(-0.4, 0.4))
 	body.apply_impulse(toss)
@@ -543,6 +656,38 @@ func _fuel_color(fuel_id: String) -> Color:
 		"tronco": return Color(0.31, 0.16, 0.075)
 		_: return Color(0.42, 0.23, 0.10)
 
+func _make_leaf_burn_material() -> ShaderMaterial:
+	var shader := Shader.new()
+	shader.code = """
+shader_type spatial;
+render_mode cull_disabled;
+uniform float burn_progress = 0.0;
+uniform float dissolve = 0.0;
+void fragment() {
+	vec2 p = UV - vec2(0.5, 0.5);
+	float radial = length(p * vec2(1.0, 1.25));
+	float local_burn = clamp(burn_progress - radial * 0.85 + 0.08, 0.0, 1.0);
+	vec3 yellow = vec3(0.92, 0.62, 0.12);
+	vec3 charred = vec3(0.075, 0.045, 0.025);
+	vec3 red = vec3(1.0, 0.12, 0.012);
+	vec3 ash = vec3(0.43, 0.44, 0.42);
+	vec3 color = mix(yellow, charred, smoothstep(0.02, 0.27, local_burn));
+	color = mix(color, red, smoothstep(0.30, 0.57, local_burn));
+	color = mix(color, ash, smoothstep(0.63, 0.94, local_burn));
+	float vein = 1.0 - smoothstep(0.008, 0.024, abs(p.y) + abs(p.x) * 0.42);
+	color = mix(color, color * 1.22, vein * (1.0 - smoothstep(0.15, 0.85, local_burn)));
+	ALBEDO = color;
+	ROUGHNESS = 0.96;
+	EMISSION = red * smoothstep(0.31, 0.56, local_burn) * (1.0 - smoothstep(0.58, 0.86, local_burn)) * 0.85;
+	ALPHA = 1.0 - dissolve;
+}
+"""
+	var material := ShaderMaterial.new()
+	material.shader = shader
+	material.set_shader_parameter("burn_progress", 0.0)
+	material.set_shader_parameter("dissolve", 0.0)
+	return material
+
 func _remove_fuel_visual_at(index: int, burnt: bool) -> void:
 	if index < 0 or index >= fuel_visuals.size():
 		return
@@ -553,18 +698,28 @@ func _remove_fuel_visual_at(index: int, burnt: bool) -> void:
 		body.collision_layer = 0
 		body.collision_mask = 0
 		if burnt:
-			material.albedo_color = Color(0.055, 0.045, 0.035)
-			material.emission_enabled = true
-			material.emission = Color(1.0, 0.16, 0.015)
-			material.emission_energy_multiplier = 1.4
+			# A quick lift and flash sells the moment the last flame eats the fuel.
+			body.position.y += 0.12
 			var tween := create_tween()
-			tween.tween_property(body, "scale", Vector3(0.06, 0.06, 0.06), 0.7)
-			tween.parallel().tween_property(material, "albedo_color", Color(0.06, 0.05, 0.045, 0.0), 0.7)
+			if material is ShaderMaterial:
+				(material as ShaderMaterial).set_shader_parameter("burn_progress", 1.0)
+				tween.tween_property(body, "scale", Vector3(0.06, 0.06, 0.06), 0.85).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_IN)
+				tween.parallel().tween_method(func(value: float) -> void: (material as ShaderMaterial).set_shader_parameter("dissolve", value), 0.0, 1.0, 0.85)
+			else:
+				var standard_material := material as StandardMaterial3D
+				standard_material.emission_enabled = true
+				standard_material.emission = Color(1.0, 0.34, 0.045)
+				standard_material.emission_energy_multiplier = 2.8
+				standard_material.albedo_color = Color(0.055, 0.045, 0.035)
+				tween.tween_property(body, "scale", Vector3(0.06, 0.06, 0.06), 0.85).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_IN)
+				tween.parallel().tween_property(standard_material, "albedo_color", Color(0.06, 0.05, 0.045, 0.0), 0.85)
+				tween.parallel().tween_property(standard_material, "emission_energy_multiplier", 0.0, 0.55)
 			tween.tween_callback(body.queue_free)
 		else:
 			body.queue_free()
 	fuel_visuals.remove_at(index)
 	fuel_visual_materials.remove_at(index)
+	leaf_burn_materials.remove_at(index)
 	fuel_visual_ids.remove_at(index)
 
 func _clear_fuel_visuals() -> void:
@@ -572,6 +727,7 @@ func _clear_fuel_visuals() -> void:
 		if is_instance_valid(body): body.queue_free()
 	fuel_visuals.clear()
 	fuel_visual_materials.clear()
+	leaf_burn_materials.clear()
 	fuel_visual_ids.clear()
 
 func set_visual_style(tier: int, skin: int) -> void:
@@ -603,6 +759,10 @@ func _update_visuals() -> void:
 	if flame == null:
 		return
 	flame.visible = current_heat > 0.1
+	if is_instance_valid(ember_core):
+		ember_core.visible = current_heat > 0.1
+		var ember_pulse := 0.88 + 0.12 * sin(float(Time.get_ticks_msec()) / 73.0)
+		ember_core.scale = Vector3.ONE * ember_pulse * clampf(0.45 + current_heat / 80.0, 0.45, 1.0)
 	if fire_particles != null:
 		fire_particles.emitting = current_heat > 0.1
 		fire_particles.amount = 8 + int(clampf(current_heat, 0.0, 60.0))
@@ -620,6 +780,12 @@ func _update_visuals() -> void:
 	flame.scale = Vector3(0.6 * flicker, intensity * flicker, 0.6 * flicker)
 	if is_instance_valid(inner_flame):
 		inner_flame.scale = Vector3(0.68, 0.78 + sin(time * 17.0) * 0.08, 0.68)
+	for index in range(flame_tongues.size()):
+		var tongue := flame_tongues[index]
+		if is_instance_valid(tongue):
+			var pulse := 0.78 + 0.20 * sin(time * (11.0 + index * 2.7) + index * 2.1)
+			tongue.scale = Vector3(pulse, pulse * (0.90 + 0.16 * sin(time * 15.0 + index)), pulse)
+			tongue.position.y = 0.12 + 0.035 * sin(time * (13.0 + index) + index)
 	var tier_colors: Array[Color] = [Color(1.0, 0.23, 0.025), Color(0.25, 0.92, 0.72), Color(0.45, 0.62, 1.0), Color(0.42, 0.16, 0.68)]
 	var skin_colors: Array[Color] = [Color.WHITE, Color(1.0, 0.65, 0.28), Color(0.72, 0.9, 1.0)]
 	var base_color: Color = tier_colors[visual_tier] * skin_colors[cosmetic_skin]
@@ -636,11 +802,17 @@ func _update_fuel_visual_state() -> void:
 		return
 	var progress := clampf(1.0 - remaining_burn / maxf(fuel.burn_duration, 0.01), 0.0, 1.0)
 	var material := fuel_visual_materials[index]
-	var char_color := material.albedo_color.lerp(Color(0.055, 0.045, 0.035), progress * 0.82)
-	material.albedo_color = char_color
-	material.emission_enabled = progress > 0.35
-	material.emission = Color(1.0, 0.16, 0.015) * clampf((progress - 0.35) * 0.9, 0.0, 0.55)
-	material.emission_energy_multiplier = 1.1
+	if material is ShaderMaterial:
+		(material as ShaderMaterial).set_shader_parameter("burn_progress", progress)
+		return
+	if not material is StandardMaterial3D:
+		return
+	var standard_material := material as StandardMaterial3D
+	var char_color := standard_material.albedo_color.lerp(Color(0.055, 0.045, 0.035), progress * 0.82)
+	standard_material.albedo_color = char_color
+	standard_material.emission_enabled = progress > 0.35
+	standard_material.emission = Color(1.0, 0.16, 0.015) * clampf((progress - 0.35) * 0.9, 0.0, 0.55)
+	standard_material.emission_energy_multiplier = 1.1
 
 
 

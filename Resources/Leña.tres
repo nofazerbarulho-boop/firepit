@@ -9,4 +9,4 @@ display_name = "Leña"
 heat_value = 5.0
 burn_duration = 6.0
 soot_price = 9.0
-starting_stock = 4
+starting_stock = 18
