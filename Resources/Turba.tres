@@ -1,0 +1,12 @@
+[gd_resource type="Resource" script_class="FuelData" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://Scripts/FuelData.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+fuel_id = "turba"
+display_name = "Turba"
+heat_value = 4.0
+burn_duration = 10.0
+soot_price = 18.0
+starting_stock = 2

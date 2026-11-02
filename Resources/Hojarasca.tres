@@ -1,0 +1,12 @@
+[gd_resource type="Resource" script_class="FuelData" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://Scripts/FuelData.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+fuel_id = "hojarasca"
+display_name = "Hojarasca"
+heat_value = 3.0
+burn_duration = 3.0
+soot_price = 4.0
+starting_stock = 4
