@@ -49,6 +49,11 @@ var audio_volume: float = 0.35
 var hud_signal_timer: float = 0.0
 var experimental_time_left: float = 0.0
 var experimental_heat_multiplier: float = 1.0
+var fuel_visuals: Array[RigidBody3D] = []
+var fuel_visual_materials: Array[StandardMaterial3D] = []
+var fuel_visual_ids: Array[String] = []
+var fuel_bed: StaticBody3D
+var smoke_particles: GPUParticles3D
 
 func _ready() -> void:
 	if has_private_inventory:
@@ -69,12 +74,14 @@ func add_fuel(fuel_id: String) -> bool:
 	elif not GameManager.take_fuel(fuel_id):
 		return false
 	fuel_queue.append(data)
+	_spawn_fuel_visual(fuel_id)
 	if fuel_id == "combustible_liquido" and burning and current_heat >= 100.0 and _queue_contains("carbon"):
 		fire_changed.emit()
 		if randf() < 0.05:
 			current_heat += 100.0
 			burning = false
 			fuel_queue.clear()
+			_clear_fuel_visuals()
 			remaining_burn = 0.0
 			GameManager.close_workday()
 			critical_explosion.emit()
@@ -148,6 +155,7 @@ func remove_last_fuel() -> bool:
 	if fuel_queue.size() <= first_removable_index:
 		return false
 	var removed_fuel: FuelData = fuel_queue.pop_back()
+	_remove_fuel_visual_at(fuel_visuals.size() - 1, false)
 	if has_private_inventory:
 		private_stock[removed_fuel.fuel_id] = int(private_stock.get(removed_fuel.fuel_id, 0)) + 1
 	else:
@@ -233,6 +241,7 @@ func _process(delta: float) -> void:
 		time_left -= step
 		if remaining_burn <= 0.0001:
 			fuel_queue.pop_front()
+			_remove_fuel_visual_at(0, true)
 			if fuel_queue.is_empty():
 				burning = false
 				pile_finished = true
@@ -245,6 +254,7 @@ func _process(delta: float) -> void:
 		_run_automation()
 	if not burning:
 		current_heat = maxf(0.0, current_heat - 2.0 * delta)
+	_update_fuel_visual_state()
 	popup_timer += delta
 	if popup_timer >= popup_interval:
 		if pending_gain > 0.0:
@@ -330,6 +340,7 @@ func get_automation_average_rate() -> float:
 	return total_soot / duration if fuel_count > 0 else 0.0
 
 func _build_fire_visuals() -> void:
+	_build_fuel_bed()
 	flame = get_node_or_null("Flame") as MeshInstance3D
 	if flame == null:
 		flame = MeshInstance3D.new()
@@ -416,12 +427,152 @@ func _build_fire_visuals() -> void:
 	spark_mesh.material = spark_material
 	spark_particles.draw_pass_1 = spark_mesh
 	add_child(spark_particles)
+	smoke_particles = GPUParticles3D.new()
+	smoke_particles.name = "SootSmoke"
+	smoke_particles.amount = 16
+	smoke_particles.lifetime = 1.6
+	smoke_particles.position.y = 0.45
+	var smoke_process := ParticleProcessMaterial.new()
+	smoke_process.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_SPHERE
+	smoke_process.emission_sphere_radius = 0.16
+	smoke_process.direction = Vector3(0.0, 1.0, 0.0)
+	smoke_process.spread = 18.0
+	smoke_process.initial_velocity_min = 0.12
+	smoke_process.initial_velocity_max = 0.32
+	smoke_process.gravity = Vector3(0.0, -0.08, 0.0)
+	smoke_process.scale_min = 0.035
+	smoke_process.scale_max = 0.09
+	smoke_process.color = Color(0.10, 0.09, 0.08, 0.34)
+	smoke_particles.process_material = smoke_process
+	var smoke_mesh := SphereMesh.new()
+	smoke_mesh.radius = 0.08
+	smoke_mesh.height = 0.16
+	var smoke_material := StandardMaterial3D.new()
+	smoke_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	smoke_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	smoke_material.albedo_color = Color(0.10, 0.09, 0.08, 0.30)
+	smoke_mesh.material = smoke_material
+	smoke_particles.draw_pass_1 = smoke_mesh
+	add_child(smoke_particles)
 	fire_audio = AudioStreamPlayer.new()
 	fire_audio.name = "FireAudio"
 	fire_audio.stream = _make_fire_loop()
 	fire_audio.volume_db = -22.0
 	add_child(fire_audio)
 	fire_audio.play()
+
+func _build_fuel_bed() -> void:
+	if get_node_or_null("FuelBed") != null:
+		return
+	fuel_bed = StaticBody3D.new()
+	fuel_bed.name = "FuelBed"
+	var collision := CollisionShape3D.new()
+	var shape := BoxShape3D.new()
+	shape.size = Vector3(1.15, 0.16, 1.15)
+	collision.shape = shape
+	collision.position.y = 0.20
+	fuel_bed.add_child(collision)
+	add_child(fuel_bed)
+
+func _spawn_fuel_visual(fuel_id: String) -> void:
+	var body := RigidBody3D.new()
+	body.name = "Fuel_%s" % fuel_id
+	body.mass = 0.8
+	body.freeze = false
+	body.linear_damp = 1.8
+	body.angular_damp = 2.5
+	body.position = Vector3(randf_range(-0.18, 0.18), 1.05 + fuel_visuals.size() * 0.18, randf_range(-0.18, 0.18))
+	body.rotation = Vector3(randf_range(-0.3, 0.3), randf_range(0.0, TAU), randf_range(-0.3, 0.3))
+	var mesh_instance := MeshInstance3D.new()
+	var shape: Shape3D
+	var material := StandardMaterial3D.new()
+	material.roughness = 0.92
+	material.albedo_color = _fuel_color(fuel_id)
+	match fuel_id:
+		"hojarasca":
+			var leaf := SphereMesh.new()
+			leaf.radius = 0.22
+			leaf.height = 0.07
+			mesh_instance.mesh = leaf
+			mesh_instance.scale = Vector3(1.2, 0.45, 0.8)
+			shape = SphereShape3D.new()
+			(shape as SphereShape3D).radius = 0.16
+		"turba":
+			var block := BoxMesh.new()
+			block.size = Vector3(0.38, 0.18, 0.28)
+			mesh_instance.mesh = block
+			shape = BoxShape3D.new()
+			(shape as BoxShape3D).size = block.size
+		"carbon":
+			var coal := SphereMesh.new()
+			coal.radius = 0.19
+			coal.height = 0.25
+			mesh_instance.mesh = coal
+			shape = SphereShape3D.new()
+			(shape as SphereShape3D).radius = 0.17
+		_:
+			var log := CylinderMesh.new()
+			log.top_radius = 0.105
+			log.bottom_radius = 0.13
+			log.height = 0.72 if fuel_id == "tronco" else 0.48
+			mesh_instance.mesh = log
+			mesh_instance.rotation_degrees.z = 90.0
+			shape = CylinderShape3D.new()
+			(shape as CylinderShape3D).radius = 0.12
+			(shape as CylinderShape3D).height = log.height
+	mesh_instance.material_override = material
+	body.add_child(mesh_instance)
+	var collision := CollisionShape3D.new()
+	collision.shape = shape
+	if fuel_id in ["leña", "tronco"]:
+		collision.rotation_degrees.z = 90.0
+	body.add_child(collision)
+	add_child(body)
+	fuel_visuals.append(body)
+	fuel_visual_materials.append(material)
+	fuel_visual_ids.append(fuel_id)
+	var toss := Vector3(randf_range(-0.55, 0.55), -0.15, randf_range(-0.4, 0.4))
+	body.apply_impulse(toss)
+	body.apply_torque_impulse(Vector3(randf_range(-0.35, 0.35), randf_range(-0.6, 0.6), randf_range(-0.35, 0.35)))
+
+func _fuel_color(fuel_id: String) -> Color:
+	match fuel_id:
+		"hojarasca": return Color(0.43, 0.27, 0.08)
+		"turba": return Color(0.25, 0.13, 0.08)
+		"carbon": return Color(0.09, 0.08, 0.07)
+		"tronco": return Color(0.31, 0.16, 0.075)
+		_: return Color(0.42, 0.23, 0.10)
+
+func _remove_fuel_visual_at(index: int, burnt: bool) -> void:
+	if index < 0 or index >= fuel_visuals.size():
+		return
+	var body := fuel_visuals[index]
+	var material := fuel_visual_materials[index]
+	if is_instance_valid(body):
+		body.freeze = true
+		body.collision_layer = 0
+		body.collision_mask = 0
+		if burnt:
+			material.albedo_color = Color(0.055, 0.045, 0.035)
+			material.emission_enabled = true
+			material.emission = Color(1.0, 0.16, 0.015)
+			material.emission_energy_multiplier = 1.4
+			var tween := create_tween()
+			tween.tween_property(body, "scale", Vector3(0.06, 0.06, 0.06), 0.7)
+			tween.parallel().tween_property(material, "albedo_color", Color(0.06, 0.05, 0.045, 0.0), 0.7)
+			tween.tween_callback(body.queue_free)
+		else:
+			body.queue_free()
+	fuel_visuals.remove_at(index)
+	fuel_visual_materials.remove_at(index)
+	fuel_visual_ids.remove_at(index)
+
+func _clear_fuel_visuals() -> void:
+	for body in fuel_visuals:
+		if is_instance_valid(body): body.queue_free()
+	fuel_visuals.clear()
+	fuel_visual_materials.clear()
+	fuel_visual_ids.clear()
 
 func set_visual_style(tier: int, skin: int) -> void:
 	visual_tier = clampi(tier, 0, 3)
@@ -458,6 +609,9 @@ func _update_visuals() -> void:
 	if spark_particles != null:
 		spark_particles.emitting = current_heat > 0.1
 		spark_particles.amount = 4 + int(clampf(current_heat * 0.45, 0.0, 24.0))
+	if smoke_particles != null:
+		smoke_particles.emitting = burning and not fuel_queue.is_empty()
+		smoke_particles.amount = 6 + int(clampf(current_heat * 0.18, 0.0, 14.0))
 	if fire_audio != null:
 		fire_audio.volume_db = -80.0 if current_heat <= 0.1 or audio_volume <= 0.001 else linear_to_db(audio_volume) - 10.0 + minf(current_heat / 10.0, 1.0) * 8.0
 	var intensity := clampf(current_heat / 45.0, 0.15, 1.0)
@@ -472,6 +626,21 @@ func _update_visuals() -> void:
 	flame_material.emission = base_color * flicker
 	if fire_particles != null and fire_particles.process_material is ParticleProcessMaterial:
 		(fire_particles.process_material as ParticleProcessMaterial).color = base_color
+
+func _update_fuel_visual_state() -> void:
+	if not burning or fuel_queue.is_empty() or fuel_visual_materials.is_empty():
+		return
+	var fuel := fuel_queue[0]
+	var index := 0
+	if index >= fuel_visual_materials.size():
+		return
+	var progress := clampf(1.0 - remaining_burn / maxf(fuel.burn_duration, 0.01), 0.0, 1.0)
+	var material := fuel_visual_materials[index]
+	var char_color := material.albedo_color.lerp(Color(0.055, 0.045, 0.035), progress * 0.82)
+	material.albedo_color = char_color
+	material.emission_enabled = progress > 0.35
+	material.emission = Color(1.0, 0.16, 0.015) * clampf((progress - 0.35) * 0.9, 0.0, 0.55)
+	material.emission_energy_multiplier = 1.1
 
 
 

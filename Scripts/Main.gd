@@ -26,6 +26,7 @@ var skill_tree_open_button: Button
 var skill_tree_points_label: Label
 var advanced_tree_label: Label
 var fire_light: OmniLight3D
+var second_fire_light: OmniLight3D
 var fuel_buttons: Dictionary = {}
 var purchase_buttons: Dictionary = {}
 var hud_layer: CanvasLayer
@@ -46,6 +47,12 @@ var fire_volume: float = 0.35
 var presentation_config := ConfigFile.new()
 var tier_names: Array[String] = ["Convencional", "Fatuo", "Valyrio", "Negro"]
 var gain_popups: Array[Label] = []
+var resource_bar: HBoxContainer
+var control_tabs: TabContainer
+var map_hint_label: Label
+var fire_intensity: ProgressBar
+var fire_intensity_label: Label
+var button_tweens: Dictionary = {}
 var hud_refresh_pending: bool = false
 var hud_refresh_elapsed: float = 0.0
 var facility_buttons: Dictionary = {}
@@ -182,7 +189,7 @@ func _show_main_menu() -> void:
 	_add_main_menu_button("Salir", _quit_game)
 
 func _has_player_progress() -> bool:
-	return GameManager.soot_earned > 0.0 or GameManager.get_soot() > 0.0 or GameManager.get_permanent_points() > 0 or GameManager.get_day_number() > 1
+	return GameManager.get_run_soot_earned() > 0.0 or GameManager.get_soot() > 0.0 or GameManager.get_permanent_points() > 0 or GameManager.get_day_number() > 1
 
 func _on_start_pressed() -> void:
 	if _has_player_progress():
@@ -332,6 +339,8 @@ func _ready() -> void:
 func _process(delta: float) -> void:
 	if not game_started:
 		return
+	if is_instance_valid(fire_intensity):
+		fire_intensity.value = lerpf(fire_intensity.value, clampf(fire.current_heat, 0.0, fire_intensity.max_value), 1.0 - exp(-8.0 * delta))
 	if hud_refresh_pending:
 		hud_refresh_elapsed += delta
 		if hud_refresh_elapsed >= 0.1:
@@ -351,6 +360,7 @@ func _process(delta: float) -> void:
 	var milestone_reward := GameManager.claim_temperature_milestones(fire.current_heat)
 	if milestone_reward > 0:
 		feedback_label.text = "¡Hito de temperatura! +%d brasa(s) permanente(s)." % milestone_reward
+		_show_resource_popup("+%d brasa%s" % [milestone_reward, "" if milestone_reward == 1 else "s"], Color("FFC56A"))
 
 func _physics_process(delta: float) -> void:
 	if not game_started:
@@ -404,8 +414,18 @@ func _build_world() -> void:
 	environment.background_color = Color(0.055, 0.048, 0.04)
 	environment.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
 	environment.ambient_light_color = Color(0.52, 0.43, 0.32)
-	environment.ambient_light_energy = 0.55
+	environment.ambient_light_energy = 0.42
 	environment.tonemap_mode = Environment.TONE_MAPPER_FILMIC
+	environment.fog_enabled = true
+	environment.fog_light_color = Color(0.12, 0.105, 0.085)
+	environment.fog_density = 0.008
+	environment.glow_enabled = true
+	environment.glow_intensity = 0.42
+	environment.glow_strength = 0.65
+	environment.adjustment_enabled = true
+	environment.adjustment_brightness = 0.96
+	environment.adjustment_contrast = 1.08
+	environment.adjustment_saturation = 0.84
 	atmosphere.environment = environment
 	add_child(atmosphere)
 	_build_warehouse()
@@ -431,6 +451,33 @@ func _build_world() -> void:
 	fire_light.light_energy = 0.0
 	fire_light.omni_range = 6.0
 	fire.add_child(fire_light)
+	second_fire_light = OmniLight3D.new()
+	second_fire_light.name = "HearthGlow"
+	second_fire_light.position = Vector3(0.0, 1.0, 0.0)
+	second_fire_light.light_color = Color(1.0, 0.3, 0.08)
+	second_fire_light.light_energy = 0.0
+	second_fire_light.omni_range = 5.0
+	second_fire.add_child(second_fire_light)
+	_build_hearth_surroundings()
+
+func _build_hearth_surroundings() -> void:
+	var soot_stain := _make_surface(Color(0.075, 0.067, 0.057), 1.0)
+	var firebrick := _make_surface(Color(0.20, 0.18, 0.15), 0.92)
+	var ash := _make_surface(Color(0.18, 0.17, 0.15), 1.0)
+	for center_x in [0.0, 2.5]:
+		var stain := _add_cylinder("HearthScorch", Vector3(center_x, -0.038, 0.0), 1.08, 0.025, soot_stain)
+		stain.name = "HearthScorch_%.1f" % center_x
+		for stone_index in range(12):
+			var angle := TAU * float(stone_index) / 12.0
+			var radius := 0.78 + 0.04 * sin(float(stone_index) * 2.3)
+			var stone_at := Vector3(center_x + cos(angle) * radius, 0.075, sin(angle) * radius)
+			var stone := _add_cylinder("FireRingStone", stone_at, 0.19, 0.25, firebrick, Vector3(randf_range(-0.08, 0.08), angle, randf_range(-0.08, 0.08)))
+			stone.scale = Vector3(randf_range(0.8, 1.15), 1.0, randf_range(0.8, 1.15))
+		for ash_index in range(8):
+			var angle := TAU * float(ash_index) / 8.0 + 0.2
+			var ash_at := Vector3(center_x + cos(angle) * randf_range(0.38, 0.62), -0.04, sin(angle) * randf_range(0.38, 0.62))
+			var fleck := _add_sphere("AshFleck", ash_at, Vector3(0.10, 0.018, 0.07), ash)
+			fleck.rotation.y = angle
 
 func _make_surface(color: Color, roughness: float = 0.8, metallic: float = 0.0) -> StandardMaterial3D:
 	var material := StandardMaterial3D.new()
@@ -480,6 +527,7 @@ func _add_sphere(name: String, at: Vector3, dimensions: Vector3, material: Mater
 	sphere.height = 1.0
 	sphere.material = material
 	node.mesh = sphere
+	node.material_override = material
 	node.position = at
 	node.scale = dimensions
 	add_child(node)
@@ -520,6 +568,13 @@ func _build_warehouse() -> void:
 				_add_box("BenchLeg", Vector3(side * 8.6 + leg_x, 0.3, z), Vector3(0.12, 0.6, 0.58), steel)
 	for x in [-7.0, 0.0, 7.0]:
 		_add_box("HangingCable", Vector3(x, 6.95, 0.0), Vector3(0.035, 1.0, 0.035), steel)
+		_add_cylinder("LampHousing", Vector3(x, 5.83, 0.0), 0.27, 0.16, steel)
+		var bulb := _add_sphere("LampBulb", Vector3(x, 5.68, 0.0), Vector3(0.24, 0.13, 0.24), _make_surface(Color(1.0, 0.63, 0.30), 0.3))
+		var bulb_material := bulb.material_override as StandardMaterial3D
+		if bulb_material != null:
+			bulb_material.emission_enabled = true
+			bulb_material.emission = Color(1.0, 0.42, 0.12)
+			bulb_material.emission_energy_multiplier = 1.4
 		var lamp := OmniLight3D.new()
 		lamp.position = Vector3(x, 6.3, 0.0)
 		lamp.light_color = Color(1.0, 0.67, 0.35)
@@ -586,14 +641,17 @@ func _create_facility_visual(kind: String, at: Vector3, base_scale: Vector3, tin
 func _build_hud() -> void:
 	hud_layer = CanvasLayer.new()
 	add_child(hud_layer)
+	var hud_theme := _make_hud_theme()
 	menu_toggle = Button.new()
+	menu_toggle.theme = hud_theme
 	menu_toggle.text = "☰"
 	menu_toggle.position = Vector2(16, 16)
 	menu_toggle.custom_minimum_size = Vector2(48, 44)
 	menu_toggle.size = Vector2(48, 44)
 	menu_toggle.pressed.connect(_toggle_menu)
 	hud_layer.add_child(menu_toggle)
-	var resource_bar := HBoxContainer.new()
+	resource_bar = HBoxContainer.new()
+	resource_bar.theme = hud_theme
 	resource_bar.position = Vector2(76, 16)
 	resource_bar.size = Vector2(310, 40)
 	resource_bar.add_theme_constant_override("separation", 8)
@@ -606,35 +664,38 @@ func _build_hud() -> void:
 		var resource_value := Label.new()
 		resource_value.name = "EmberCount" if badge_ember else "SootCount"
 		resource_value.custom_minimum_size = Vector2(110, 34)
+		resource_value.add_theme_font_size_override("font_size", 18)
+		resource_value.add_theme_color_override("font_color", Color("E4DED2"))
 		resource_bar.add_child(resource_value)
-	var map_hint := Label.new()
-	map_hint.text = "WASD: mover  ·  Shift: correr  ·  Ratón: mirar  ·  Esc: liberar cursor  ·  Tab: menú"
-	map_hint.set_anchors_and_offsets_preset(Control.PRESET_TOP_RIGHT)
-	map_hint.position = Vector2(-490.0, 20.0)
-	map_hint.custom_minimum_size = Vector2(470.0, 28.0)
-	map_hint.size = Vector2(470.0, 28.0)
-	map_hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-	map_hint.add_theme_color_override("font_color", Color(0.9, 0.79, 0.61))
-	map_hint.add_theme_color_override("font_outline_color", Color(0.05, 0.04, 0.03, 0.95))
-	map_hint.add_theme_constant_override("outline_size", 3)
-	hud_layer.add_child(map_hint)
+	map_hint_label = Label.new()
+	map_hint_label.text = "WASD: mover  ·  Shift: correr  ·  Ratón: mirar  ·  Esc: liberar cursor  ·  Tab: menú"
+	map_hint_label.set_anchors_and_offsets_preset(Control.PRESET_TOP_RIGHT)
+	map_hint_label.custom_minimum_size = Vector2(470.0, 28.0)
+	map_hint_label.size = Vector2(470.0, 28.0)
+	map_hint_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	map_hint_label.add_theme_color_override("font_color", Color(0.9, 0.79, 0.61))
+	map_hint_label.add_theme_color_override("font_outline_color", Color(0.05, 0.04, 0.03, 0.95))
+	map_hint_label.add_theme_constant_override("outline_size", 3)
+	hud_layer.add_child(map_hint_label)
 	menu_panel = PanelContainer.new()
+	menu_panel.theme = hud_theme
 	menu_panel.position = Vector2(16.0, 70.0)
-	var panel_width := minf(236.0, get_viewport().get_visible_rect().size.x * 0.2)
+	var viewport_size := get_viewport().get_visible_rect().size
+	var panel_width := minf(clampf(viewport_size.x * 0.28, 290.0, 390.0), maxf(220.0, viewport_size.x - 32.0))
 	menu_panel.custom_minimum_size = Vector2(panel_width, 0.0)
-	menu_panel.size = Vector2(panel_width, minf(610.0, get_viewport().get_visible_rect().size.y - 86.0))
+	menu_panel.set_anchors_and_offsets_preset(Control.PRESET_TOP_LEFT)
+	menu_panel.size = Vector2(panel_width, maxf(180.0, viewport_size.y - 86.0))
+	get_viewport().size_changed.connect(_resize_hud_panel)
 	hud_layer.add_child(menu_panel)
-	menu_panel.add_theme_stylebox_override("panel", _make_skill_panel_style(Color(0.08, 0.07, 0.065, 0.94), Color(0.55, 0.34, 0.16, 0.9)))
-	var panel := menu_panel
-	var scroll := ScrollContainer.new()
-	scroll.custom_minimum_size = Vector2(panel_width - 10.0, 0.0)
-	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	panel.add_child(scroll)
-	var layout := VBoxContainer.new()
-	layout.add_theme_constant_override("separation", 8)
-	layout.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	scroll.add_child(layout)
+	apply_industrial_panel(menu_panel)
+	control_tabs = TabContainer.new()
+	control_tabs.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	control_tabs.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	menu_panel.add_child(control_tabs)
+	var fire_layout := _add_control_tab("Hoguera", panel_width)
+	var fuel_layout := _add_control_tab("Combustible", panel_width)
+	var upgrades_layout := _add_control_tab("Mejoras", panel_width)
+	var layout: VBoxContainer = fire_layout
 	var title := Label.new()
 	title.text = "HOGUERA"
 	title.add_theme_font_size_override("font_size", 20)
@@ -653,6 +714,24 @@ func _build_hud() -> void:
 	progress_bar.show_percentage = false
 	progress_bar.custom_minimum_size.y = 12.0
 	layout.add_child(progress_bar)
+	fire_intensity_label = Label.new()
+	fire_intensity_label.text = "Intensidad del fuego"
+	layout.add_child(fire_intensity_label)
+	fire_intensity = ProgressBar.new()
+	fire_intensity.min_value = 0.0
+	fire_intensity.max_value = 1000.0
+	fire_intensity.show_percentage = false
+	fire_intensity.custom_minimum_size.y = 14.0
+	fire_intensity.tooltip_text = "Escala visual hasta 1.000 °C; la temperatura exacta aparece arriba."
+	var intensity_track := StyleBoxFlat.new()
+	intensity_track.bg_color = Color("242525")
+	intensity_track.set_corner_radius_all(4)
+	var intensity_fill := StyleBoxFlat.new()
+	intensity_fill.bg_color = Color("D88A36")
+	intensity_fill.set_corner_radius_all(4)
+	fire_intensity.add_theme_stylebox_override("background", intensity_track)
+	fire_intensity.add_theme_stylebox_override("fill", intensity_fill)
+	layout.add_child(fire_intensity)
 	queue_label = Label.new()
 	queue_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	layout.add_child(queue_label)
@@ -670,7 +749,9 @@ func _build_hud() -> void:
 	feedback_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	layout.add_child(feedback_label)
 	for fuel_data in FuelCatalog.get_all():
+		layout = fuel_layout
 		_add_fuel_button(layout, "Cargar " + fuel_data.display_name, fuel_data.fuel_id)
+	layout = fuel_layout
 	_build_skill_tree_overlay()
 
 	var shop_title := Label.new()
@@ -682,6 +763,7 @@ func _build_hud() -> void:
 	remove_fuel_button.text = "Retirar último combustible"
 	remove_fuel_button.pressed.connect(_on_remove_fuel)
 	layout.add_child(remove_fuel_button)
+	layout = fire_layout
 	ignite_button = Button.new()
 	ignite_button.text = "Encender hoguera"
 	ignite_button.pressed.connect(_on_ignite)
@@ -693,6 +775,7 @@ func _build_hud() -> void:
 	rest_button.text = "Descansar y cerrar la jornada"
 	rest_button.pressed.connect(_on_rest)
 	layout.add_child(rest_button)
+	layout = upgrades_layout
 	upgrade_button = Button.new()
 	upgrade_button.text = "Mejorar producción (25 de hollín, +0,25x)"
 	upgrade_button.pressed.connect(_on_upgrade)
@@ -769,6 +852,166 @@ func _build_hud() -> void:
 	layout.add_child(second_upgrade_button)
 	_add_automation_controls(layout, fire, "Hoguera I", 80.0)
 	_add_automation_controls(layout, second_fire, "Hoguera II", 160.0)
+	_apply_accessibility()
+	_update_resource_cards()
+	_resize_hud_panel()
+	_install_button_feedback()
+
+func apply_industrial_panel(panel: PanelContainer) -> void:
+	var style := StyleBoxFlat.new()
+	style.bg_color = Color("17191A", 0.96)
+	style.border_color = Color("75634E", 0.9)
+	style.set_border_width_all(1)
+	style.set_corner_radius_all(8)
+	style.content_margin_left = 12.0
+	style.content_margin_right = 12.0
+	style.content_margin_top = 10.0
+	style.content_margin_bottom = 10.0
+	panel.add_theme_stylebox_override("panel", style)
+
+func _add_control_tab(tab_name: String, panel_width: float) -> VBoxContainer:
+	var scroll := ScrollContainer.new()
+	scroll.name = tab_name
+	scroll.custom_minimum_size = Vector2(panel_width - 28.0, 0.0)
+	scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	control_tabs.add_child(scroll)
+	var content := VBoxContainer.new()
+	content.add_theme_constant_override("separation", 8)
+	content.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	scroll.add_child(content)
+	return content
+
+func _make_hud_theme() -> Theme:
+	var theme := Theme.new()
+	theme.default_font_size = 14
+	var normal := StyleBoxFlat.new()
+	normal.bg_color = Color("242525")
+	normal.border_color = Color("75634E")
+	normal.set_border_width_all(1)
+	normal.set_corner_radius_all(5)
+	normal.content_margin_left = 8.0
+	normal.content_margin_right = 8.0
+	normal.content_margin_top = 6.0
+	normal.content_margin_bottom = 6.0
+	theme.set_stylebox("normal", "Button", normal)
+	var hover := StyleBoxFlat.new()
+	hover.bg_color = Color("34302A")
+	hover.border_color = Color("D88A36")
+	hover.set_border_width_all(1)
+	hover.set_corner_radius_all(5)
+	var pressed := StyleBoxFlat.new()
+	pressed.bg_color = Color("49351F")
+	pressed.border_color = Color("FFC56A")
+	pressed.set_border_width_all(1)
+	pressed.set_corner_radius_all(5)
+	var disabled := StyleBoxFlat.new()
+	disabled.bg_color = Color("202121")
+	disabled.border_color = Color("504E48")
+	disabled.set_border_width_all(1)
+	disabled.set_corner_radius_all(5)
+	var focus := StyleBoxFlat.new()
+	focus.bg_color = Color("242525")
+	focus.border_color = Color("FFC56A")
+	focus.set_border_width_all(2)
+	focus.set_corner_radius_all(5)
+	theme.set_stylebox("hover", "Button", hover)
+	theme.set_stylebox("pressed", "Button", pressed)
+	theme.set_stylebox("disabled", "Button", disabled)
+	theme.set_stylebox("focus", "Button", focus)
+	theme.set_color("font_color", "Label", Color("E4DED2"))
+	theme.set_color("font_color", "Button", Color("E4DED2"))
+	theme.set_color("font_disabled_color", "Button", Color("AAA69D"))
+	return theme
+
+func _update_resource_cards() -> void:
+	if not is_instance_valid(resource_bar):
+		return
+	var soot_count := hud_layer.find_child("SootCount", true, false) as Label
+	var ember_count := hud_layer.find_child("EmberCount", true, false) as Label
+	if is_instance_valid(soot_count): soot_count.text = "HOLLÍN\n%s" % _format_resource_count(GameManager.get_soot())
+	if is_instance_valid(ember_count): ember_count.text = "BRASAS\n%d" % GameManager.get_permanent_points()
+
+func _install_button_feedback() -> void:
+	for control in _walk_controls(hud_layer):
+		if control is Button:
+			var button := control as Button
+			button.pivot_offset = button.size * 0.5
+			button.mouse_entered.connect(_on_button_hover.bind(button, true))
+			button.mouse_exited.connect(_on_button_hover.bind(button, false))
+			button.pressed.connect(_pulse_button.bind(button))
+
+func _on_button_hover(button: Button, is_hovered: bool) -> void:
+	if not is_instance_valid(button) or button.disabled:
+		return
+	button.pivot_offset = button.size * 0.5
+	_tween_button_scale(button, Vector2.ONE * (1.025 if is_hovered else 1.0), 0.1)
+
+func _pulse_button(button: Button) -> void:
+	if not is_instance_valid(button) or button.disabled:
+		return
+	button.pivot_offset = button.size * 0.5
+	var tween := _start_button_tween(button)
+	tween.tween_property(button, "scale", Vector2(0.97, 0.97), 0.055).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	tween.tween_property(button, "scale", Vector2.ONE, 0.12).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+
+func _tween_button_scale(button: Button, target: Vector2, duration: float) -> void:
+	var tween := _start_button_tween(button)
+	tween.tween_property(button, "scale", target, duration).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+
+func _start_button_tween(button: Button) -> Tween:
+	var previous: Variant = button_tweens.get(button)
+	if is_instance_valid(previous):
+		(previous as Tween).kill()
+	var tween := button.create_tween()
+	button_tweens[button] = tween
+	return tween
+
+func _set_action_feedback(message: String, success: bool, popup_message: String = "") -> void:
+	feedback_label.text = message
+	feedback_label.add_theme_color_override("font_color", Color("FFC56A") if success else Color("E98B75"))
+	if success and not popup_message.is_empty():
+		_show_resource_popup(popup_message, Color("FFC56A"))
+
+func _resize_hud_panel() -> void:
+	if not is_instance_valid(menu_panel):
+		return
+	var viewport_size := get_viewport().get_visible_rect().size
+	var panel_width := minf(clampf(viewport_size.x * 0.28, 290.0, 390.0), maxf(220.0, viewport_size.x - 32.0))
+	var compact := viewport_size.x < 800.0
+	var narrow := viewport_size.x < 500.0
+	var panel_top := 108.0 if compact else 70.0
+	menu_panel.position.x = 16.0
+	menu_panel.custom_minimum_size.x = panel_width
+	menu_panel.position.y = panel_top
+	menu_panel.size = Vector2(panel_width, maxf(150.0, viewport_size.y - panel_top - 16.0))
+	if compact:
+		map_hint_label.text = "WASD mover · Shift correr · Ratón mirar · Esc cursor · Tab menú"
+		map_hint_label.set_anchors_and_offsets_preset(Control.PRESET_TOP_LEFT)
+		map_hint_label.position = Vector2(16.0, 58.0)
+		map_hint_label.custom_minimum_size = Vector2(viewport_size.x - 32.0, 40.0)
+		map_hint_label.size = Vector2(viewport_size.x - 32.0, 40.0)
+		map_hint_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+		if narrow:
+			map_hint_label.text = "WASD mover · Shift correr · Ratón mirar\nEsc cursor · Tab menú"
+	else:
+		map_hint_label.text = "WASD: mover  ·  Shift: correr  ·  Ratón: mirar  ·  Esc: liberar cursor  ·  Tab: menú"
+		map_hint_label.set_anchors_and_offsets_preset(Control.PRESET_TOP_RIGHT)
+		map_hint_label.position = Vector2(-490.0, 20.0)
+		map_hint_label.custom_minimum_size = Vector2(470.0, 28.0)
+		map_hint_label.size = Vector2(470.0, 28.0)
+		map_hint_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	resource_bar.size.x = 230.0 if narrow else 310.0
+	for badge in resource_bar.get_children():
+		if badge is ResourceBadge:
+			badge.custom_minimum_size = Vector2(28.0, 28.0) if narrow else Vector2(34.0, 34.0)
+		elif badge is Label:
+			badge.custom_minimum_size.x = 76.0 if narrow else 110.0
+	if is_instance_valid(control_tabs):
+		for page in control_tabs.get_children():
+			if page is ScrollContainer:
+				page.custom_minimum_size.x = panel_width - 28.0
 
 func _add_automation_controls(parent: VBoxContainer, target_fire: FireManager, station_name: String, unlock_cost: float) -> void:
 	var title := Label.new()
@@ -867,6 +1110,8 @@ func _on_select_biome(selected: int) -> void:
 	second_fire.biome_heat_multiplier = multiplier
 	if is_instance_valid(fire_light):
 		fire_light.light_color = Color(1.0, 0.3, 0.08) if biome_index == 0 else Color(0.28, 0.62, 0.42)
+	if is_instance_valid(second_fire_light):
+		second_fire_light.light_color = Color(1.0, 0.3, 0.08) if biome_index == 0 else Color(0.28, 0.62, 0.42)
 	var ground := get_node_or_null("Ground") as MeshInstance3D
 	if ground != null:
 		var ground_material := ground.material_override as StandardMaterial3D
@@ -938,6 +1183,8 @@ func _load_presentation_settings() -> void:
 	second_fire.biome_heat_multiplier = fire.biome_heat_multiplier
 	if is_instance_valid(fire_light):
 		fire_light.light_color = Color(1.0, 0.3, 0.08) if biome_index == 0 else Color(0.28, 0.62, 0.42)
+	if is_instance_valid(second_fire_light):
+		second_fire_light.light_color = Color(1.0, 0.3, 0.08) if biome_index == 0 else Color(0.28, 0.62, 0.42)
 	var ground := get_node_or_null("Ground") as MeshInstance3D
 	if is_instance_valid(ground):
 		var ground_material := ground.material_override as StandardMaterial3D
@@ -964,7 +1211,10 @@ func _apply_accessibility() -> void:
 	for root in roots:
 		for control in _walk_controls(root):
 			if control is Label or control is Button:
-				control.add_theme_font_size_override("font_size", (18 if large_text else 14) if control != tier_button else 14)
+				var readable_size := 18 if large_text else 14
+				if control.name == "SootCount" or control.name == "EmberCount":
+					readable_size = 22 if large_text else 18
+				control.add_theme_font_size_override("font_size", readable_size if control != tier_button else 14)
 			if control is Label and high_contrast:
 				control.add_theme_color_override("font_color", Color(1, 1, 0.82))
 			elif control is Label:
@@ -993,37 +1243,47 @@ func _add_purchase_button(parent: VBoxContainer, button_text: String, fuel_id: S
 	purchase_buttons[fuel_id] = button
 
 func _on_add_fuel(fuel_id: String) -> void:
+	var fuel_name := fuel_shop.get_display_name(fuel_id)
 	if fire.add_fuel(fuel_id):
-		feedback_label.text = "Combustible añadido para la siguiente carga." if fire.burning else "Combustible añadido a la pila."
+		_set_action_feedback("Combustible añadido para la siguiente carga." if fire.burning else "Combustible añadido a la pila.", true, "+1 %s en la pila" % fuel_name)
 	else:
-		feedback_label.text = "No queda más de ese combustible."
+		_set_action_feedback("No queda más de ese combustible en el inventario.", false)
 	_refresh_hud()
 
 func _on_buy_fuel(fuel_id: String) -> void:
 	if fuel_shop.buy_fuel(fuel_id):
-		feedback_label.text = "Combustible comprado con hollín."
+		_set_action_feedback("Combustible comprado con hollín.", true, "%s comprado" % fuel_shop.get_display_name(fuel_id))
+	elif not GameManager.is_fuel_unlocked(fuel_id):
+		_set_action_feedback("Este combustible se desbloquea el día %d." % FuelCatalog.get_by_id(fuel_id).unlock_day, false)
+	elif not GameManager.can_store_fuel():
+		_set_action_feedback("Almacén lleno. Mejora su capacidad antes de comprar más.", false)
+	elif GameManager.get_soot() < fuel_shop.get_price(fuel_id):
+		_set_action_feedback("Necesitas %.0f de hollín para comprar %s." % [fuel_shop.get_price(fuel_id), fuel_shop.get_display_name(fuel_id)], false)
 	else:
-		feedback_label.text = "Te falta hollín para esa compra."
+		_set_action_feedback("No se pudo completar la compra.", false)
 	_refresh_hud()
 
 func _on_ignite() -> void:
 	if fire.burning:
-		feedback_label.text = "La hoguera ya está encendida."
+		_set_action_feedback("La hoguera ya está encendida.", false)
 	else:
-		feedback_label.text = "La hoguera está encendida." if fire.ignite() else "Añade combustible antes de encender."
+		if fire.ignite():
+			_set_action_feedback("La hoguera está encendida.", true, "¡Hoguera encendida!")
+		else:
+			_set_action_feedback("Añade combustible a la pila antes de encender.", false)
 	_refresh_hud()
 
 func _on_stoke() -> void:
 	if fire.stoke():
-		feedback_label.text = "Hoguera avivada: +50% hollín durante 12 segundos."
+		_set_action_feedback("Hoguera avivada: +50% hollín durante 12 segundos.", true, "Avivada · +50% / 12 s")
 	elif not fire.burning:
-		feedback_label.text = "Enciende la hoguera antes de avivarla."
+		_set_action_feedback("Enciende la hoguera antes de avivarla.", false)
 	elif fire.stoke_time_left > 0.0:
-		feedback_label.text = "Espera a que termine el avivado actual."
+		_set_action_feedback("Espera a que termine el avivado actual.", false)
 	elif GameManager.get_soot() < FireManager.STOKE_COST:
-		feedback_label.text = "Necesitas 15 de hollín para avivar."
+		_set_action_feedback("Necesitas 15 de hollín para avivar.", false)
 	else:
-		feedback_label.text = "No se pudo avivar la hoguera."
+		_set_action_feedback("No se pudo avivar la hoguera.", false)
 	_refresh_hud()
 
 func _on_rest() -> void:
@@ -1319,10 +1579,7 @@ func _refresh_hud() -> void:
 	accessibility_button.text = "Accesibilidad: %s%s" % ["texto grande" if large_text else "texto normal", " | alto contraste" if high_contrast else ""]
 	volume_button.text = "Volumen del fuego: %d%%" % int(fire_volume * 100.0)
 	soot_label.text = "Hollín disponible: %.1f | Ceniza de la jornada: %.1f" % [GameManager.get_soot(), GameManager.get_daily_ash()]
-	var soot_count := hud_layer.find_child("SootCount", true, false) as Label
-	var ember_count := hud_layer.find_child("EmberCount", true, false) as Label
-	if is_instance_valid(soot_count): soot_count.text = "%s hollín" % _format_resource_count(GameManager.get_soot())
-	if is_instance_valid(ember_count): ember_count.text = "%d brasas" % GameManager.get_permanent_points()
+	_update_resource_cards()
 	stats_label.text = "Temperatura: %.1f °C (x%.2f) | Multiplicador: %.2fx\nBrasas ganadas: %d | Disponibles: %d" % [fire.current_heat, GameManager.get_thermal_multiplier(), GameManager.get_global_multiplier(), GameManager.get_permanent_points(), GameManager.get_available_embers()]
 	var second_stock_parts := PackedStringArray()
 	for fuel_data in FuelCatalog.get_all():
@@ -1341,6 +1598,7 @@ func _refresh_hud() -> void:
 		else:
 			toggle.text = "Desbloquear %s (%.0f hollin)" % [str(control.name), unlock_cost]
 		toggle.disabled = not target_fire.automation_unlocked and GameManager.get_soot() < unlock_cost
+		toggle.add_theme_color_override("font_color", Color("FFC56A") if target_fire.automation_active else Color("E4DED2"))
 		priority.text = "Prioridad: " + target_fire.get_fuel_priority_text()
 		priority.disabled = not target_fire.automation_unlocked
 	var remaining_day := maxf(0.0, 720.0 - GameManager.get_day_elapsed())
@@ -1381,6 +1639,7 @@ func _refresh_hud() -> void:
 	progress_label.text = "Siguiente hito: %.0f °C" % next_milestone if next_milestone > 0 else "Todos los hitos de temperatura alcanzados"
 	progress_bar.max_value = float(next_milestone) if next_milestone > 0 else 1.0
 	progress_bar.value = minf(fire.current_heat, float(next_milestone)) if next_milestone > 0 else 1.0
+	fire_intensity_label.text = "INTENSIDAD · %.1f °C (escala visual hasta 1.000 °C)" % fire.current_heat
 	var stock := GameManager.get_fuel_stock()
 	var stock_parts := PackedStringArray()
 	for fuel_data in FuelCatalog.get_all():
@@ -1408,6 +1667,11 @@ func _refresh_hud() -> void:
 	ignite_button.disabled = fire.burning or fire.fuel_queue.is_empty()
 	stoke_button.text = "Avivar (+50% durante 12 s | 15 hollin)" if fire.stoke_time_left <= 0.0 else "Avivando (%.1f s)" % fire.stoke_time_left
 	stoke_button.disabled = not fire.burning or fire.stoke_time_left > 0.0 or GameManager.get_soot() < FireManager.STOKE_COST
+	stoke_button.add_theme_color_override("font_color", Color("FFC56A") if fire.stoke_time_left > 0.0 else Color("E4DED2"))
+	if fire.stoke_time_left > 0.0:
+		stoke_button.add_theme_color_override("font_disabled_color", Color("FFC56A"))
+	else:
+		stoke_button.remove_theme_color_override("font_disabled_color")
 	remove_fuel_button.disabled = fire.fuel_queue.size() <= (1 if fire.burning else 0)
 	upgrade_button.text = "Mejorar produccion (%.0f hollin, +0,25x | nivel %d)" % [GameManager.get_upgrade_cost(), GameManager.get_temporary_upgrades() + 1]
 	upgrade_button.disabled = GameManager.get_soot() < GameManager.get_upgrade_cost()
@@ -1419,6 +1683,10 @@ func _refresh_hud() -> void:
 		var light_base := 0.3 + minf(fire.current_heat / 35.0, 1.0) * 2.2
 		var flicker := 1.0 + sin(float(Time.get_ticks_msec()) / 83.0) * 0.07
 		fire_light.light_energy = 0.0 if fire.current_heat <= 0.1 else light_base * flicker
+	if is_instance_valid(second_fire_light):
+		var second_light_base := 0.25 + minf(second_fire.current_heat / 35.0, 1.0) * 1.8
+		var second_flicker := 1.0 + sin(float(Time.get_ticks_msec()) / 97.0 + 1.3) * 0.08
+		second_fire_light.light_energy = 0.0 if second_fire.current_heat <= 0.1 else second_light_base * second_flicker
 	if skill_tree_overlay.visible:
 		_refresh_skill_tree()
 func _request_hud_refresh() -> void:
@@ -1471,7 +1739,12 @@ func _update_guidance_and_tooltips(stock: Dictionary) -> void:
 	prestige_button.tooltip_text = "Genera %.0f más de hollín para recibir otra brasa." % points_to_next if GameManager.get_run_soot_earned() < GameManager.PRESTIGE_THRESHOLD else "Reinicia la run y recibe las brasas acumuladas."
 
 func _show_gain_popup(amount: float) -> void:
-	if not is_instance_valid(hud_layer) or amount < 0.1:
+	if amount < 0.1:
+		return
+	_show_resource_popup("+%.1f hollín" % amount, Color("FFC56A"))
+
+func _show_resource_popup(message: String, tint: Color) -> void:
+	if not is_instance_valid(hud_layer):
 		return
 	for index in range(gain_popups.size() - 1, -1, -1):
 		if not is_instance_valid(gain_popups[index]):
@@ -1479,13 +1752,13 @@ func _show_gain_popup(amount: float) -> void:
 	if gain_popups.size() >= 4:
 		gain_popups.pop_front().queue_free()
 	var popup := Label.new()
-	popup.text = "+%.1f hollín" % amount
+	popup.text = message
 	popup.add_theme_font_size_override("font_size", 24)
-	popup.add_theme_color_override("font_color", Color(1.0, 0.72, 0.24))
+	popup.add_theme_color_override("font_color", tint)
 	popup.add_theme_color_override("font_outline_color", Color(0.12, 0.07, 0.025, 0.95))
 	popup.add_theme_constant_override("outline_size", 4)
 	var viewport_size := get_viewport().get_visible_rect().size
-	var start_position := Vector2(viewport_size.x * 0.55, viewport_size.y * 0.52)
+	var start_position := Vector2(viewport_size.x * 0.55, viewport_size.y * 0.52 - gain_popups.size() * 28.0)
 	start_position.x += randf_range(-24.0, 24.0)
 	popup.position = start_position
 	hud_layer.add_child(popup)
