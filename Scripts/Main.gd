@@ -1,5 +1,10 @@
 extends Node3D
 
+const UPGRADE_TABLE_SCENE: PackedScene = preload("res://ideas/mesa mejoras.glb")
+const UPGRADE_STATION_POSITION := Vector3(3.4, 0.0, 1.2)
+const UPGRADE_PANEL_SIZE := Vector2(2.2, 1.4)
+const UPGRADE_PANEL_RESOLUTION := Vector2i(1024, 640)
+
 @onready var fire: FireManager = $FireManager
 @onready var second_fire: FireManager = $FireManager2
 
@@ -80,6 +85,14 @@ var player_position := Vector3(0.0, 0.9, 6.0)
 var camera_yaw: float = 0.0
 var camera_pitch: float = -0.08
 var mouse_sensitivity: float = 0.0025
+var upgrade_station: Node3D
+var upgrade_station_panel: Node3D
+var upgrade_station_viewport: SubViewport
+var upgrade_station_viewport_container: SubViewportContainer
+var upgrade_station_prompt: Label
+var upgrade_station_feedback: Label
+var upgrade_station_open: bool = false
+var upgrade_station_in_range: bool = false
 
 class ResourceBadge extends Control:
 	var ember: bool = false
@@ -131,9 +144,22 @@ class SkillTreeConnections extends Control:
 func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed and not event.echo:
 		if event.keycode == KEY_ESCAPE:
-			Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+			if upgrade_station_open:
+				if is_instance_valid(skill_tree_overlay) and skill_tree_overlay.visible:
+					_close_skill_tree()
+				else:
+					_close_upgrade_station()
+			else:
+				Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+		elif event.keycode == KEY_E and game_started:
+			if upgrade_station_open:
+				_close_upgrade_station()
+			elif upgrade_station_in_range:
+				_open_upgrade_station()
 		elif event.keycode == KEY_TAB:
 			_toggle_menu()
+	elif upgrade_station_open and (event is InputEventMouseButton or event is InputEventMouseMotion):
+		get_viewport().set_input_as_handled()
 	elif event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
 		if Input.mouse_mode != Input.MOUSE_MODE_CAPTURED:
 			Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
@@ -153,7 +179,7 @@ func _update_camera_position() -> void:
 			camera_node.rotation = Vector3(camera_pitch, camera_yaw, 0.0)
 
 func _toggle_menu() -> void:
-	if is_instance_valid(menu_panel):
+	if is_instance_valid(menu_panel) and not upgrade_station_open:
 		menu_panel.visible = not menu_panel.visible
 		menu_toggle.text = "×" if menu_panel.visible else "☰"
 
@@ -241,6 +267,8 @@ func _begin_game() -> void:
 	hud_layer.visible = true
 	menu_panel.visible = false
 	menu_toggle.text = "☰"
+	upgrade_station_panel.visible = false
+	upgrade_station_open = false
 	fire.set_process(true)
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 	_refresh_hud()
@@ -343,6 +371,7 @@ func _ready() -> void:
 func _process(delta: float) -> void:
 	if not game_started:
 		return
+	_update_upgrade_station_interaction()
 	if is_instance_valid(fire_intensity):
 		fire_intensity.value = lerpf(fire_intensity.value, clampf(fire.current_heat, 0.0, fire_intensity.max_value), 1.0 - exp(-8.0 * delta))
 	if hud_refresh_pending:
@@ -369,6 +398,10 @@ func _process(delta: float) -> void:
 
 func _physics_process(delta: float) -> void:
 	if not game_started:
+		return
+	if upgrade_station_open:
+		if is_instance_valid(player_body):
+			player_body.velocity = Vector3.ZERO
 		return
 	var move := Vector2.ZERO
 	if Input.is_key_pressed(KEY_A) or Input.is_key_pressed(KEY_LEFT): move.x -= 1.0
@@ -464,6 +497,199 @@ func _build_world() -> void:
 	second_fire_light.omni_range = 5.0
 	second_fire.add_child(second_fire_light)
 	_build_hearth_surroundings()
+	_build_upgrade_station()
+
+func _build_upgrade_station() -> void:
+	upgrade_station = Node3D.new()
+	upgrade_station.name = "UpgradeStation"
+	upgrade_station.position = UPGRADE_STATION_POSITION
+	add_child(upgrade_station)
+	var table := UPGRADE_TABLE_SCENE.instantiate() as Node3D
+	table.name = "RustyUpgradeTable"
+	table.scale = Vector3.ONE * 1.45
+	upgrade_station.add_child(table)
+	var table_body := StaticBody3D.new()
+	table_body.name = "TableCollision"
+	var table_collision := CollisionShape3D.new()
+	var table_shape := BoxShape3D.new()
+	table_shape.size = Vector3(2.85, 0.85, 1.75)
+	table_collision.shape = table_shape
+	table_collision.position.y = 0.42
+	table_body.add_child(table_collision)
+	upgrade_station.add_child(table_body)
+
+	upgrade_station_panel = Node3D.new()
+	upgrade_station_panel.name = "FloatingUpgradePanel"
+	upgrade_station_panel.position = Vector3(0.0, 1.57, 0.0)
+	upgrade_station_panel.visible = false
+	upgrade_station.add_child(upgrade_station_panel)
+	var panel_mesh := MeshInstance3D.new()
+	panel_mesh.name = "PanelSurface"
+	var quad := QuadMesh.new()
+	quad.size = UPGRADE_PANEL_SIZE
+	panel_mesh.mesh = quad
+	var panel_material := StandardMaterial3D.new()
+	panel_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	panel_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	panel_material.cull_mode = BaseMaterial3D.CULL_DISABLED
+	panel_material.albedo_color = Color.WHITE
+	panel_mesh.material_override = panel_material
+	upgrade_station_panel.add_child(panel_mesh)
+
+	upgrade_station_viewport = SubViewport.new()
+	upgrade_station_viewport.name = "UpgradePanelViewport"
+	upgrade_station_viewport.size = UPGRADE_PANEL_RESOLUTION
+	upgrade_station_viewport.transparent_bg = true
+	upgrade_station_viewport.render_target_update_mode = SubViewport.UPDATE_ALWAYS
+	add_child(upgrade_station_viewport)
+	panel_material.albedo_texture = upgrade_station_viewport.get_texture()
+
+func _build_upgrade_station_ui(hud_theme: Theme) -> void:
+	var root := Control.new()
+	root.name = "UpgradeStationUI"
+	root.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	root.theme = hud_theme
+	upgrade_station_viewport.add_child(root)
+	remove_child(upgrade_station_viewport)
+	upgrade_station_viewport_container = SubViewportContainer.new()
+	upgrade_station_viewport_container.name = "UpgradePanelInputSurface"
+	upgrade_station_viewport_container.stretch = true
+	upgrade_station_viewport_container.mouse_filter = Control.MOUSE_FILTER_STOP
+	upgrade_station_viewport_container.visible = false
+	hud_layer.add_child(upgrade_station_viewport_container)
+	upgrade_station_viewport_container.add_child(upgrade_station_viewport)
+	var panel := PanelContainer.new()
+	panel.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	panel.add_theme_stylebox_override("panel", _make_skill_panel_style(Color(0.055, 0.05, 0.043, 0.96), Color("D88A36")))
+	root.add_child(panel)
+	var margin := MarginContainer.new()
+	margin.add_theme_constant_override("margin_left", 30)
+	margin.add_theme_constant_override("margin_top", 22)
+	margin.add_theme_constant_override("margin_right", 30)
+	margin.add_theme_constant_override("margin_bottom", 22)
+	panel.add_child(margin)
+	var stack := VBoxContainer.new()
+	stack.add_theme_constant_override("separation", 14)
+	margin.add_child(stack)
+	var heading := Label.new()
+	heading.name = "UpgradeHeading"
+	heading.text = "MESA DE MEJORAS"
+	heading.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	heading.add_theme_font_size_override("font_size", 32)
+	heading.add_theme_color_override("font_color", Color("FFC56A"))
+	stack.add_child(heading)
+	var description := Label.new()
+	description.text = "Invierte hollín en producción y brasas en conocimiento permanente."
+	description.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	description.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	description.add_theme_color_override("font_color", Color("E4DED2"))
+	stack.add_child(description)
+	var production_card := PanelContainer.new()
+	production_card.add_theme_stylebox_override("panel", _make_skill_panel_style(Color("242525"), Color("75634E")))
+	stack.add_child(production_card)
+	var production_stack := VBoxContainer.new()
+	production_stack.add_theme_constant_override("separation", 8)
+	production_card.add_child(production_stack)
+	var production_title := Label.new()
+	production_title.name = "ProductionHeading"
+	production_title.text = "PRODUCCIÓN"
+	production_title.add_theme_font_size_override("font_size", 19)
+	production_title.add_theme_color_override("font_color", Color("FFC56A"))
+	production_stack.add_child(production_title)
+	upgrade_button.theme = hud_theme
+	upgrade_button.custom_minimum_size.y = 54.0
+	production_stack.add_child(upgrade_button)
+	var ember_card := PanelContainer.new()
+	ember_card.add_theme_stylebox_override("panel", _make_skill_panel_style(Color("242525"), Color("75634E")))
+	stack.add_child(ember_card)
+	var ember_stack := VBoxContainer.new()
+	ember_stack.add_theme_constant_override("separation", 8)
+	ember_card.add_child(ember_stack)
+	var ember_title := Label.new()
+	ember_title.name = "EmberHeading"
+	ember_title.text = "ÁRBOL DE BRASAS"
+	ember_title.add_theme_font_size_override("font_size", 19)
+	ember_title.add_theme_color_override("font_color", Color("FFC56A"))
+	ember_stack.add_child(ember_title)
+	var ember_description := Label.new()
+	ember_description.text = "Consulta requisitos y desbloquea nodos permanentes."
+	ember_description.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	ember_stack.add_child(ember_description)
+	skill_tree_open_button.theme = hud_theme
+	skill_tree_open_button.custom_minimum_size.y = 48.0
+	ember_stack.add_child(skill_tree_open_button)
+	upgrade_station_feedback = Label.new()
+	upgrade_station_feedback.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	upgrade_station_feedback.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	upgrade_station_feedback.add_theme_color_override("font_color", Color("FFC56A"))
+	stack.add_child(upgrade_station_feedback)
+	var footer := HBoxContainer.new()
+	footer.alignment = BoxContainer.ALIGNMENT_CENTER
+	stack.add_child(footer)
+	var close_button := Button.new()
+	close_button.text = "CERRAR · E / ESC"
+	close_button.custom_minimum_size = Vector2(280.0, 46.0)
+	close_button.pressed.connect(_close_upgrade_station)
+	footer.add_child(close_button)
+	_upgrade_station_feedback_text("Acércate a la mesa y pulsa E para mejorar la hoguera.")
+
+func _update_upgrade_station_interaction() -> void:
+	if not is_instance_valid(upgrade_station):
+		return
+	var player_at := player_body.global_position if is_instance_valid(player_body) else player_position
+	var station_at := upgrade_station.global_position
+	upgrade_station_in_range = player_at.distance_to(station_at + Vector3(0.0, 0.55, 0.0)) <= 2.7
+	if is_instance_valid(upgrade_station_prompt):
+		upgrade_station_prompt.visible = game_started and upgrade_station_in_range and not upgrade_station_open
+	if upgrade_station_open and is_instance_valid(upgrade_station_panel):
+		upgrade_station_panel.look_at(camera_node.global_position, Vector3.UP)
+		var panel_center := upgrade_station_panel.global_position
+		var panel_right := upgrade_station_panel.global_transform.basis.x * (UPGRADE_PANEL_SIZE.x * 0.5)
+		var panel_up := upgrade_station_panel.global_transform.basis.y * (UPGRADE_PANEL_SIZE.y * 0.5)
+		var screen_corners := PackedVector2Array([
+			camera_node.unproject_position(panel_center - panel_right + panel_up),
+			camera_node.unproject_position(panel_center + panel_right + panel_up),
+			camera_node.unproject_position(panel_center - panel_right - panel_up),
+			camera_node.unproject_position(panel_center + panel_right - panel_up),
+		])
+		var left := screen_corners[0].x
+		var right := screen_corners[0].x
+		var top := screen_corners[0].y
+		var bottom := screen_corners[0].y
+		for corner in screen_corners:
+			left = minf(left, corner.x)
+			right = maxf(right, corner.x)
+			top = minf(top, corner.y)
+			bottom = maxf(bottom, corner.y)
+		upgrade_station_viewport_container.position = Vector2(left, top)
+		upgrade_station_viewport_container.size = Vector2(right - left, bottom - top)
+
+func _open_upgrade_station() -> void:
+	if not upgrade_station_in_range:
+		return
+	upgrade_station_open = true
+	menu_panel.visible = false
+	menu_toggle.text = "☰"
+	upgrade_station_viewport.render_target_update_mode = SubViewport.UPDATE_ALWAYS
+	upgrade_station_panel.visible = true
+	upgrade_station_viewport_container.visible = true
+	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	_update_upgrade_station_interaction()
+
+func _close_upgrade_station() -> void:
+	if not upgrade_station_open:
+		return
+	upgrade_station_open = false
+	if is_instance_valid(skill_tree_overlay):
+		skill_tree_overlay.visible = false
+	upgrade_station_panel.visible = false
+	upgrade_station_viewport_container.visible = false
+	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+	_update_upgrade_station_interaction()
+
+func _upgrade_station_feedback_text(message: String) -> void:
+	if is_instance_valid(upgrade_station_feedback):
+		upgrade_station_feedback.text = message
 
 func _build_hearth_surroundings() -> void:
 	var soot_stain := _make_surface(Color(0.075, 0.067, 0.057), 1.0)
@@ -692,7 +918,7 @@ func _build_hud() -> void:
 		resource_value.add_theme_color_override("font_color", Color("E4DED2"))
 		resource_bar.add_child(resource_value)
 	map_hint_label = Label.new()
-	map_hint_label.text = "WASD: mover  ·  Shift: correr  ·  Ratón: mirar  ·  Esc: liberar cursor  ·  Tab: menú"
+	map_hint_label.text = "WASD: mover · Shift: correr · Ratón: mirar · E: mejoras · Tab: menú"
 	map_hint_label.set_anchors_and_offsets_preset(Control.PRESET_TOP_RIGHT)
 	map_hint_label.custom_minimum_size = Vector2(470.0, 28.0)
 	map_hint_label.size = Vector2(470.0, 28.0)
@@ -701,6 +927,18 @@ func _build_hud() -> void:
 	map_hint_label.add_theme_color_override("font_outline_color", Color(0.05, 0.04, 0.03, 0.95))
 	map_hint_label.add_theme_constant_override("outline_size", 3)
 	hud_layer.add_child(map_hint_label)
+	upgrade_station_prompt = Label.new()
+	upgrade_station_prompt.visible = false
+	upgrade_station_prompt.text = "MESA DE MEJORAS  ·  PULSA E"
+	upgrade_station_prompt.set_anchors_and_offsets_preset(Control.PRESET_CENTER_BOTTOM)
+	upgrade_station_prompt.position = Vector2(-180.0, -88.0)
+	upgrade_station_prompt.size = Vector2(360.0, 42.0)
+	upgrade_station_prompt.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	upgrade_station_prompt.add_theme_font_size_override("font_size", 20)
+	upgrade_station_prompt.add_theme_color_override("font_color", Color("FFC56A"))
+	upgrade_station_prompt.add_theme_color_override("font_outline_color", Color(0.04, 0.035, 0.028, 0.96))
+	upgrade_station_prompt.add_theme_constant_override("outline_size", 4)
+	hud_layer.add_child(upgrade_station_prompt)
 	menu_panel = PanelContainer.new()
 	menu_panel.theme = hud_theme
 	menu_panel.position = Vector2(16.0, 70.0)
@@ -813,14 +1051,18 @@ func _build_hud() -> void:
 	rest_button.pressed.connect(_on_rest)
 	layout.add_child(rest_button)
 	layout = upgrades_layout
+	var station_note := Label.new()
+	station_note.text = "Las mejoras se gestionan en la mesa del taller. Acércate y pulsa E."
+	station_note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	layout.add_child(station_note)
 	upgrade_button = Button.new()
 	upgrade_button.text = "Mejorar producción (25 de hollín, +0,25x)"
 	upgrade_button.pressed.connect(_on_upgrade)
-	layout.add_child(upgrade_button)
 	skill_tree_open_button = Button.new()
 	skill_tree_open_button.text = "Abrir arbol de mejoras"
 	skill_tree_open_button.pressed.connect(_open_skill_tree)
-	layout.add_child(skill_tree_open_button)
+	_build_upgrade_station_ui(hud_theme)
+	layout = fire_layout
 	accessibility_button = Button.new()
 	accessibility_button.pressed.connect(_cycle_accessibility)
 	layout.add_child(accessibility_button)
@@ -966,11 +1208,11 @@ func _resize_hud_panel() -> void:
 	menu_panel.position.y = panel_top
 	menu_panel.size = Vector2(panel_width, maxf(150.0, viewport_size.y - panel_top - 16.0))
 	if compact:
-		map_hint_label.text = "WASD mover · Shift correr · Ratón mirar · Esc cursor · Tab menú"
+		map_hint_label.text = "WASD mover · Shift correr · Ratón mirar · E mejoras · Tab menú"
 		if narrow:
-			map_hint_label.text = "WASD mover · Shift correr · Ratón mirar\nEsc cursor · Tab menú"
+			map_hint_label.text = "WASD mover · Shift correr · Ratón mirar\nE mejoras · Esc cerrar · Tab menú"
 	else:
-		map_hint_label.text = "WASD: mover  ·  Shift: correr  ·  Ratón: mirar  ·  Esc: liberar cursor  ·  Tab: menú"
+		map_hint_label.text = "WASD: mover · Shift: correr · Ratón: mirar · E: mejoras · Esc: cerrar · Tab: menú"
 	map_hint_label.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_RIGHT)
 	map_hint_label.offset_left = -minf(viewport_size.x - 32.0, 470.0)
 	map_hint_label.offset_right = -16.0
@@ -1175,6 +1417,10 @@ func _apply_accessibility() -> void:
 				var readable_size := 18 if large_text else 14
 				if control.name == "SootCount" or control.name == "EmberCount":
 					readable_size = 22 if large_text else 18
+				elif control.name == "UpgradeHeading":
+					readable_size = 34 if large_text else 30
+				elif control.name == "ProductionHeading" or control.name == "EmberHeading":
+					readable_size = 22 if large_text else 19
 				control.add_theme_font_size_override("font_size", readable_size if control != tier_button else 14)
 			if control is Label and high_contrast:
 				control.add_theme_color_override("font_color", Color(1, 1, 0.82))
@@ -1315,7 +1561,9 @@ func _on_remove_fuel() -> void:
 func _on_upgrade() -> void:
 	if GameManager.buy_upgrade():
 		feedback_label.text = "Mejora comprada."
+		_upgrade_station_feedback_text("Mejora comprada. Producción aumentada.")
 	else:
+		_upgrade_station_feedback_text("Necesitas %.0f de hollín para mejorar." % GameManager.get_upgrade_cost())
 		feedback_label.text = "Necesitas %.0f de hollín para mejorar." % GameManager.get_upgrade_cost()
 	_refresh_hud()
 
@@ -1485,9 +1733,16 @@ func _get_permanent_node(node_id: String) -> Dictionary:
 func _open_skill_tree() -> void:
 	_refresh_skill_tree()
 	skill_tree_overlay.visible = true
+	if upgrade_station_open:
+		upgrade_station_panel.visible = false
+		upgrade_station_viewport_container.visible = false
 
 func _close_skill_tree() -> void:
 	skill_tree_overlay.visible = false
+	if upgrade_station_open:
+		upgrade_station_panel.visible = true
+		upgrade_station_viewport_container.visible = true
+		_update_upgrade_station_interaction()
 
 func _refresh_skill_tree() -> void:
 	if not is_instance_valid(skill_tree_overlay):
@@ -1542,8 +1797,10 @@ func _make_skill_panel_style(background: Color, border: Color) -> StyleBoxFlat:
 func _on_purchase_permanent_node(node_id: String) -> void:
 	if GameManager.purchase_permanent_node(node_id):
 		feedback_label.text = "Nodo permanente desbloqueado: %s." % _get_node_name(node_id)
+		_upgrade_station_feedback_text("Nodo desbloqueado: %s." % _get_node_name(node_id))
 	else:
 		feedback_label.text = "No cumples el coste, prerequisito o desbloqueo de ese nodo."
+		_upgrade_station_feedback_text("No cumples el coste o requisito de ese nodo.")
 	_refresh_hud()
 	_refresh_skill_tree()
 

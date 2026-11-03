@@ -16,6 +16,7 @@ La jornada dura 4 minutos activos. Se puede descansar después de 2 minutos; si 
 - **Encender** inicia la combustión. La temperatura genera ceniza, que se convierte en hollín al cierre de la jornada.
 - **Combustible** permite comprar unidades con hollín. Se conservan las existencias y se recibe suministro al comenzar cada día.
 - **Mejoras** aumenta la producción y permite gastar las brasas permanentes que conceden los hitos de 100, 500 y 1.000 °C.
+- **Mesa de mejoras** está en el taller: acércate y pulsa **E** para abrir su panel 3D. Pulsa **E** o **Esc** para cerrarlo.
 - La UI incluye ajustes de volumen, contraste y tamaño de texto.
 
 El juego usa una hoguera y los combustibles básicos de los días 1–3. Prestigio, segunda hoguera, progreso offline, instalaciones, automatización y combustibles tardíos no están disponibles en el flujo de Early Access.

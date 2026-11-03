@@ -23,7 +23,7 @@ var current_heat: float = 0.0
 var burning: bool = false
 var remaining_burn: float = 0.0
 var flame: MeshInstance3D
-var flame_material: StandardMaterial3D
+var flame_material: ShaderMaterial
 var pending_gain: float = 0.0
 var popup_interval: float = 0.4
 var popup_timer: float = 0.0
@@ -381,6 +381,55 @@ func get_automation_average_rate() -> float:
 			fuel_count += 1
 	return total_soot / duration if fuel_count > 0 else 0.0
 
+func _make_flame_shader() -> Shader:
+	var shader := Shader.new()
+	shader.code = """
+shader_type spatial;
+render_mode unshaded, cull_disabled, depth_draw_never;
+
+uniform vec4 fire_tint : source_color = vec4(1.0, 0.27, 0.025, 1.0);
+uniform float heat_intensity : hint_range(0.0, 1.0) = 0.0;
+uniform float seed_offset = 0.0;
+
+float hash_value(vec2 point) {
+	return fract(sin(dot(point, vec2(127.1, 311.7))) * 43758.5453);
+}
+
+float value_noise(vec2 point) {
+	vec2 cell = floor(point);
+	vec2 local_point = fract(point);
+	local_point = local_point * local_point * (3.0 - 2.0 * local_point);
+	float a = hash_value(cell);
+	float b = hash_value(cell + vec2(1.0, 0.0));
+	float c = hash_value(cell + vec2(0.0, 1.0));
+	float d = hash_value(cell + vec2(1.0, 1.0));
+	return mix(mix(a, b, local_point.x), mix(c, d, local_point.x), local_point.y);
+}
+
+void fragment() {
+	vec2 uv = UV;
+	float flow = TIME * (1.4 + heat_intensity * 2.1);
+	float turbulence = value_noise(vec2(uv.x * 7.0 + seed_offset, uv.y * 5.0 - flow));
+	float fine_turbulence = value_noise(vec2(uv.x * 15.0 - seed_offset, uv.y * 9.0 - flow * 1.45));
+	float taper = mix(0.43, 0.018, uv.y);
+	float edge_noise = (turbulence - 0.5) * 0.20 + (fine_turbulence - 0.5) * 0.055;
+	float edge = taper + edge_noise;
+	float silhouette = 1.0 - smoothstep(edge - 0.045, edge + 0.035, abs(uv.x - 0.5));
+	float vertical_fade = smoothstep(0.015, 0.18, uv.y) * (1.0 - smoothstep(0.76, 0.99, uv.y));
+	float flame_shape = silhouette * vertical_fade * heat_intensity;
+	float core = (1.0 - smoothstep(0.06, 0.30, abs(uv.x - 0.5))) * (1.0 - smoothstep(0.20, 0.72, uv.y));
+	vec3 ember = vec3(0.72, 0.055, 0.008) * fire_tint.rgb;
+	vec3 orange = vec3(1.0, 0.20, 0.015) * fire_tint.rgb;
+	vec3 gold = vec3(1.0, 0.67, 0.12) * fire_tint.rgb;
+	vec3 flame_color = mix(ember, orange, smoothstep(0.02, 0.82, uv.y + turbulence * 0.16));
+	flame_color = mix(flame_color, gold, clamp(core * 0.78, 0.0, 0.78));
+	ALBEDO = flame_color;
+	EMISSION = flame_color * (1.8 + heat_intensity * 2.4);
+	ALPHA = clamp(flame_shape * (0.72 + turbulence * 0.28), 0.0, 0.92) * fire_tint.a;
+}
+"""
+	return shader
+
 func _build_fire_visuals() -> void:
 	_build_fuel_bed()
 	_build_ember_core()
@@ -394,17 +443,14 @@ func _build_fire_visuals() -> void:
 		flame.mesh = flame_mesh
 		flame.position.y = 0.85
 		add_child(flame)
-	flame_material = flame.material_override as StandardMaterial3D
-	if flame_material == null:
-		flame_material = StandardMaterial3D.new()
-		flame.material_override = flame_material
-	flame_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	flame_material.emission_enabled = true
-	flame_material.emission = Color(1.0, 0.22, 0.025)
-	flame_material.emission_energy_multiplier = 2.2
-	flame_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	flame_material.albedo_color = Color(1.0, 0.3, 0.025, 0.82)
-	flame_material.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
+	var outer_flame := QuadMesh.new()
+	outer_flame.size = Vector2(1.0, 1.35)
+	flame.mesh = outer_flame
+	flame_material = ShaderMaterial.new()
+	flame_material.shader = _make_flame_shader()
+	flame_material.set_shader_parameter("fire_tint", Color(1.0, 0.27, 0.025, 1.0))
+	flame_material.set_shader_parameter("heat_intensity", 0.0)
+	flame.material_override = flame_material
 	inner_flame = MeshInstance3D.new()
 	inner_flame.name = "FlameCore"
 	var core_mesh := SphereMesh.new()
@@ -422,26 +468,19 @@ func _build_fire_visuals() -> void:
 	core_material.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
 	inner_flame.material_override = core_material
 	flame.add_child(inner_flame)
-	# A trio of tapered tongues gives the fire a readable silhouette beyond the soft outer glow.
-	var tongue_colors: Array[Color] = [Color(1.0, 0.30, 0.035), Color(1.0, 0.48, 0.055), Color(1.0, 0.22, 0.025)]
-	for index in range(3):
+	# Two crossed shader tongues provide a varied, flame-shaped silhouette.
+	var tongue_colors: Array[Color] = [Color(1.0, 0.42, 0.055), Color(1.0, 0.19, 0.018)]
+	for index in range(2):
 		var tongue := MeshInstance3D.new()
 		tongue.name = "FlameTongue%d" % index
-		var tongue_mesh := CylinderMesh.new()
-		tongue_mesh.top_radius = 0.015
-		tongue_mesh.bottom_radius = 0.14 if index == 0 else 0.105
-		tongue_mesh.height = 0.72 if index == 0 else 0.55
+		var tongue_mesh := QuadMesh.new()
+		tongue_mesh.size = Vector2(0.46 if index == 0 else 0.34, 0.95 if index == 0 else 0.72)
 		tongue.mesh = tongue_mesh
-		tongue.position = Vector3((index - 1) * 0.13, 0.12, 0.04 if index != 1 else -0.10)
-		tongue.rotation.z = deg_to_rad((index - 1) * 12.0)
-		var tongue_material := StandardMaterial3D.new()
-		tongue_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-		tongue_material.emission_enabled = true
-		tongue_material.emission = tongue_colors[index]
-		tongue_material.emission_energy_multiplier = 2.0
-		tongue_material.albedo_color = Color(tongue_colors[index].r, tongue_colors[index].g, tongue_colors[index].b, 0.88)
-		tongue_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-		tongue_material.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
+		tongue.position = Vector3((index - 0.5) * 0.10, 0.10, 0.10 if index == 0 else -0.12)
+		tongue.rotation.y = deg_to_rad(0.0 if index == 0 else 38.0)
+		var tongue_material := flame_material.duplicate() as ShaderMaterial
+		tongue_material.set_shader_parameter("fire_tint", tongue_colors[index])
+		tongue_material.set_shader_parameter("seed_offset", float(index) * 0.37)
 		tongue.material_override = tongue_material
 		flame.add_child(tongue)
 		flame_tongues.append(tongue)
@@ -463,6 +502,14 @@ func _build_fire_visuals() -> void:
 	var particle_mesh := SphereMesh.new()
 	particle_mesh.radius = 0.035
 	particle_mesh.height = 0.07
+	var fire_particle_material := StandardMaterial3D.new()
+	fire_particle_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	fire_particle_material.emission_enabled = true
+	fire_particle_material.emission = Color(1.0, 0.28, 0.025)
+	fire_particle_material.emission_energy_multiplier = 1.8
+	fire_particle_material.albedo_color = Color(1.0, 0.30, 0.035, 0.75)
+	fire_particle_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	particle_mesh.material = fire_particle_material
 	fire_particles.draw_pass_1 = particle_mesh
 	add_child(fire_particles)
 	spark_particles = GPUParticles3D.new()
@@ -770,16 +817,20 @@ func _update_visuals() -> void:
 		spark_particles.emitting = current_heat > 0.1
 		spark_particles.amount = 4 + int(clampf(current_heat * 0.45, 0.0, 24.0))
 	if smoke_particles != null:
-		smoke_particles.emitting = burning and not fuel_queue.is_empty()
-		smoke_particles.amount = 6 + int(clampf(current_heat * 0.18, 0.0, 14.0))
+		smoke_particles.emitting = current_heat > 0.1 and (burning or current_heat > 1.0)
+		smoke_particles.amount = 4 + int(clampf(current_heat * 0.16, 0.0, 18.0))
 	if fire_audio != null:
 		fire_audio.volume_db = -80.0 if current_heat <= 0.1 or audio_volume <= 0.001 else linear_to_db(audio_volume) - 10.0 + minf(current_heat / 10.0, 1.0) * 8.0
-	var intensity := clampf(current_heat / 45.0, 0.15, 1.0)
+	var intensity := clampf(current_heat / 45.0, 0.0, 1.0)
 	var time := float(Time.get_ticks_msec()) / 1000.0
 	var flicker := 1.0 + sin(time * 13.0) * 0.06 + sin(time * 21.7) * 0.035
-	flame.scale = Vector3(0.6 * flicker, intensity * flicker, 0.6 * flicker)
+	var scene_camera := get_viewport().get_camera_3d()
+	if scene_camera != null:
+		flame.look_at(scene_camera.global_position, Vector3.UP)
+	flame.scale = Vector3(0.66 * flicker, maxf(0.12, intensity) * flicker, 0.66 * flicker)
+	flame_material.set_shader_parameter("heat_intensity", intensity if burning else intensity * 0.52)
 	if is_instance_valid(inner_flame):
-		inner_flame.scale = Vector3(0.68, 0.78 + sin(time * 17.0) * 0.08, 0.68)
+		inner_flame.scale = Vector3(0.55, (0.62 + sin(time * 17.0) * 0.08) * maxf(0.25, intensity), 0.55)
 	for index in range(flame_tongues.size()):
 		var tongue := flame_tongues[index]
 		if is_instance_valid(tongue):
@@ -788,8 +839,20 @@ func _update_visuals() -> void:
 			tongue.position.y = 0.12 + 0.035 * sin(time * (13.0 + index) + index)
 	var tier_colors: Array[Color] = [Color(1.0, 0.23, 0.025), Color(0.25, 0.92, 0.72), Color(0.45, 0.62, 1.0), Color(0.42, 0.16, 0.68)]
 	var skin_colors: Array[Color] = [Color.WHITE, Color(1.0, 0.65, 0.28), Color(0.72, 0.9, 1.0)]
-	var base_color: Color = tier_colors[visual_tier] * skin_colors[cosmetic_skin]
-	flame_material.emission = base_color * flicker
+	var fuel_tint := Color.WHITE
+	if not fuel_queue.is_empty():
+		match fuel_queue[0].fuel_id:
+			"hojarasca": fuel_tint = Color(1.0, 0.93, 0.78)
+			"leña": fuel_tint = Color(1.0, 0.78, 0.48)
+			"tronco": fuel_tint = Color(1.0, 0.62, 0.32)
+			"turba": fuel_tint = Color(0.86, 0.72, 0.58)
+	var base_color: Color = tier_colors[visual_tier] * skin_colors[cosmetic_skin] * fuel_tint
+	flame_material.set_shader_parameter("fire_tint", base_color)
+	for index in range(flame_tongues.size()):
+		var tongue_material := flame_tongues[index].material_override as ShaderMaterial
+		if tongue_material != null:
+			tongue_material.set_shader_parameter("heat_intensity", intensity if burning else intensity * 0.52)
+			tongue_material.set_shader_parameter("fire_tint", base_color * (Color(1.0, 0.52, 0.24) if index == 1 else Color(1.0, 0.84, 0.52)))
 	if fire_particles != null and fire_particles.process_material is ParticleProcessMaterial:
 		(fire_particles.process_material as ParticleProcessMaterial).color = base_color
 
