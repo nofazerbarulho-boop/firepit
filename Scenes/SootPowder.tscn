@@ -1,0 +1,15 @@
+[gd_scene load_steps=3 format=3]
+
+[sub_resource type="SphereMesh" id="SphereMesh_soot"]
+radius = 0.055
+height = 0.11
+
+[sub_resource type="StandardMaterial3D" id="Material_soot"]
+shading_mode = 0
+transparency = 1
+albedo_color = Color(0.045, 0.04, 0.035, 0.9)
+roughness = 1.0
+
+[node name="SootPowder" type="MeshInstance3D"]
+mesh = SubResource("SphereMesh_soot")
+surface_material_override/0 = SubResource("Material_soot")

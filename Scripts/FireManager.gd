@@ -9,6 +9,7 @@ const FUEL_HOJARASCA: FuelData = preload("res://Resources/Hojarasca.tres")
 const FUEL_LENA: FuelData = preload("res://Resources/Leña.tres")
 const FUEL_TRONCO: FuelData = preload("res://Resources/Tronco.tres")
 const FUEL_TURBA: FuelData = preload("res://Resources/Turba.tres")
+const SOOT_POWDER_SCENE: PackedScene = preload("res://Scenes/SootPowder.tscn")
 const FUEL_TYPES := {"hojarasca": FUEL_HOJARASCA, "leña": FUEL_LENA, "tronco": FUEL_TRONCO, "turba": FUEL_TURBA}
 const MIX_STEP_BONUS := 0.12
 const VARIETY_BONUS := 0.04
@@ -745,6 +746,7 @@ func _remove_fuel_visual_at(index: int, burnt: bool) -> void:
 		body.collision_layer = 0
 		body.collision_mask = 0
 		if burnt:
+			_spawn_soot_powder(body.global_position)
 			# A quick lift and flash sells the moment the last flame eats the fuel.
 			body.position.y += 0.12
 			var tween := create_tween()
@@ -768,6 +770,18 @@ func _remove_fuel_visual_at(index: int, burnt: bool) -> void:
 	fuel_visual_materials.remove_at(index)
 	leaf_burn_materials.remove_at(index)
 	fuel_visual_ids.remove_at(index)
+
+func _spawn_soot_powder(at: Vector3) -> void:
+	var soot := SOOT_POWDER_SCENE.instantiate() as MeshInstance3D
+	soot.global_position = at
+	add_child(soot)
+	var material := soot.material_override as StandardMaterial3D
+	var tween := create_tween()
+	tween.set_parallel(true)
+	tween.tween_property(soot, "global_position", at + Vector3(0.0, 0.12, 0.0), 0.8).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
+	tween.tween_property(soot, "scale", Vector3(1.5, 1.5, 1.5), 0.8)
+	tween.tween_property(material, "albedo_color:a", 0.0, 0.8)
+	tween.chain().tween_callback(soot.queue_free)
 
 func _clear_fuel_visuals() -> void:
 	for body in fuel_visuals:

@@ -3,9 +3,10 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://gu8m0vy6r8nl"
-path="res://.godot/imported/mesa mejoras_rusty_metal_table_3d_model_rm.jpg-3df54d02c6b6b33abf19f5bc63088010.ctex"
+path.s3tc="res://.godot/imported/mesa mejoras_rusty_metal_table_3d_model_rm.jpg-3df54d02c6b6b33abf19f5bc63088010.s3tc.ctex"
 metadata={
-"vram_texture": false
+"imported_formats": ["s3tc_bptc"],
+"vram_texture": true
 }
 generator_parameters={
 "md5": "359500566194bd291b2b053190d6ffc2"
@@ -14,11 +15,11 @@ generator_parameters={
 [deps]
 
 source_file="res://ideas/mesa mejoras_rusty_metal_table_3d_model_rm.jpg"
-dest_files=["res://.godot/imported/mesa mejoras_rusty_metal_table_3d_model_rm.jpg-3df54d02c6b6b33abf19f5bc63088010.ctex"]
+dest_files=["res://.godot/imported/mesa mejoras_rusty_metal_table_3d_model_rm.jpg-3df54d02c6b6b33abf19f5bc63088010.s3tc.ctex"]
 
 [params]
 
-compress/mode=0
+compress/mode=2
 compress/high_quality=false
 compress/lossy_quality=0.7
 compress/uastc_level=0
@@ -40,4 +41,4 @@ process/normal_map_invert_y=false
 process/hdr_as_srgb=false
 process/hdr_clamp_exposure=false
 process/size_limit=0
-detect_3d/compress_to=1
+detect_3d/compress_to=0
